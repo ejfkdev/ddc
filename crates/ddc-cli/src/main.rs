@@ -1927,7 +1927,11 @@ pub(crate) fn zip_entries(data: &[u8]) -> Result<Vec<ZipEntry>> {
     let eocd = find_eocd(data).context("zip: EOCD not found")?;
     let cd_size = u32le(data, eocd + 12) as usize;
     let cd_off = u32le(data, eocd + 16) as usize;
-    let n = u32le(data, eocd + 10) as usize;
+    // The EOCD entry count is a u16 (bytes 10..12). Reading it as u32 also
+    // swallowed the low half of cd_size, so `with_capacity` below asked for
+    // ~2^32 entries worth of memory (202 GB on an archive whose cd_size low
+    // half was 0xFBCA) and the process aborted before doing any work.
+    let n = u16le(data, eocd + 10) as usize;
     let mut out = Vec::with_capacity(n);
     let mut p = cd_off;
     for _ in 0..n {
@@ -2004,4 +2008,96 @@ pub(crate) fn inflate(data: &[u8]) -> Result<Vec<u8>> {
     let mut dec = flate2::read::DeflateDecoder::new(data);
     dec.read_to_end(&mut out)?;
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn u16b(v: u16) -> [u8; 2] {
+        v.to_le_bytes()
+    }
+
+    fn u32b(v: u32) -> [u8; 4] {
+        v.to_le_bytes()
+    }
+
+    /// Hand-built STORED-only zip (no compressor dependency). Each entry's
+    /// payload is its own name, which is all these tests need.
+    fn stored_zip(names: &[&str]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut cd = Vec::new();
+        for name in names {
+            let off = out.len() as u32;
+            let body = name.as_bytes();
+            out.extend_from_slice(&u32b(0x0403_4b50)); // local file header
+            out.extend_from_slice(&u16b(20)); // version needed
+            out.extend_from_slice(&u16b(0)); // flags
+            out.extend_from_slice(&u16b(0)); // method: stored
+            out.extend_from_slice(&u32b(0)); // mtime
+            out.extend_from_slice(&u32b(0)); // crc32
+            out.extend_from_slice(&u32b(body.len() as u32)); // csize
+            out.extend_from_slice(&u32b(body.len() as u32)); // usize
+            out.extend_from_slice(&u16b(name.len() as u16));
+            out.extend_from_slice(&u16b(0)); // extra len
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(body);
+
+            cd.extend_from_slice(&u32b(0x0201_4b50)); // central directory
+            cd.extend_from_slice(&u16b(20)); // version made by
+            cd.extend_from_slice(&u16b(20)); // version needed
+            cd.extend_from_slice(&u16b(0)); // flags
+            cd.extend_from_slice(&u16b(0)); // method: stored
+            cd.extend_from_slice(&u32b(0)); // mtime
+            cd.extend_from_slice(&u32b(0)); // crc32
+            cd.extend_from_slice(&u32b(body.len() as u32)); // csize
+            cd.extend_from_slice(&u32b(body.len() as u32)); // usize
+            cd.extend_from_slice(&u16b(name.len() as u16));
+            cd.extend_from_slice(&u16b(0)); // extra len
+            cd.extend_from_slice(&u16b(0)); // comment len
+            cd.extend_from_slice(&u16b(0)); // disk number
+            cd.extend_from_slice(&u16b(0)); // internal attrs
+            cd.extend_from_slice(&u32b(0)); // external attrs
+            cd.extend_from_slice(&u32b(off)); // local header offset
+            cd.extend_from_slice(name.as_bytes());
+        }
+        let cd_off = out.len() as u32;
+        let cd_size = cd.len() as u32;
+        out.extend_from_slice(&cd);
+        out.extend_from_slice(&u32b(0x0605_4b50)); // EOCD
+        out.extend_from_slice(&u16b(0)); // this disk
+        out.extend_from_slice(&u16b(0)); // disk with cd start
+        out.extend_from_slice(&u16b(names.len() as u16)); // entries on disk
+        out.extend_from_slice(&u16b(names.len() as u16)); // total entries
+        out.extend_from_slice(&u32b(cd_size));
+        out.extend_from_slice(&u32b(cd_off));
+        out.extend_from_slice(&u16b(0)); // comment len
+        out
+    }
+
+    #[test]
+    fn reads_stored_entry_payload() {
+        let z = stored_zip(&["a.bin"]);
+        let entries = zip_entries(&z).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "a.bin");
+        assert_eq!(&z[entries[0].range.clone()], b"a.bin");
+    }
+
+    /// Regression test for the archive that used to abort ddc: its
+    /// cd_size = 981_962 = 0x000E_FBCA, so the 4-byte read at eocd + 10 saw
+    /// 0xFBCA * 2^16 + 2 = 4_224_319_490 entries and `with_capacity` asked
+    /// the allocator for 4_224_319_490 * 48 B = 202_767_335_520 B.
+    #[test]
+    fn eocd_entry_count_is_u16_not_u32() {
+        let mut z = stored_zip(&["classes.dex", "AndroidManifest.xml"]);
+        let eocd = z.len() - 22;
+        z[eocd + 12..eocd + 16].copy_from_slice(&u32b(981_962));
+
+        let entries = zip_entries(&z).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "classes.dex");
+        assert_eq!(entries[1].name, "AndroidManifest.xml");
+        assert!(entries.iter().all(|e| e.range.end <= z.len()));
+    }
 }
