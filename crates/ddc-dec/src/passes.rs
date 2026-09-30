@@ -4277,28 +4277,38 @@ pub fn insert_object_narrowing_casts(
 ) {
     // Resolve a value's static type through the VarTable for locals (the
     // embedded Local ty can lag infer_types), else the expr's own type.
+    // The erased materialization happens ONCE per statement and threads
+    // through the checks — the old helpers re-erased 3-4x per statement
+    // (each a JavaType clone with Array chains) and this pass runs over
+    // every Assign/LocalDef/Return/call-arg corpus-wide.
     let value_ty = |e: &Expr| -> JavaType {
         match e {
             Expr::Local { var, .. } => vt.var(*var).ty.erased(),
             other => other.type_ref().erased(),
         }
     };
-    let is_top_object = |e: &Expr| -> bool {
-        value_ty(e) == JavaType::Object("java/lang/Object".into())
+    let is_top_object_ty = |v: &JavaType| -> bool {
+        matches!(v, JavaType::Object(c) if c.as_ref() == "java/lang/Object")
     };
     // A specific reference target type (a class other than
     // java/lang/Object, or an array — `String[] v = obj` needs the
-    // cast exactly like `String v = obj`).
+    // cast exactly like `String v = obj`). The J arm pattern-matches
+    // directly (no erased clone); only the rare G form erases.
     let specific_ref = |ty: &TypeRef| -> Option<TypeRef> {
-        match ty.erased() {
-            JavaType::Object(c) if c.as_ref() != "java/lang/Object" => Some(ty.clone()),
-            JavaType::Array(_) => Some(ty.clone()),
-            _ => None,
+        match ty {
+            TypeRef::J(JavaType::Object(c)) if c.as_ref() != "java/lang/Object" => {
+                Some(ty.clone())
+            }
+            TypeRef::J(JavaType::Array(_)) => Some(ty.clone()),
+            _ => match ty.erased() {
+                JavaType::Object(c) if c.as_ref() != "java/lang/Object" => Some(ty.clone()),
+                JavaType::Array(_) => Some(ty.clone()),
+                _ => None,
+            },
         }
     };
-    let castable = |e: &Expr| -> bool {
-        is_top_object(e)
-            && !matches!(e, Expr::Const(_) | Expr::Cast { .. } | Expr::InstanceOf { .. })
+    let non_cast_shape = |e: &Expr| -> bool {
+        !matches!(e, Expr::Const(_) | Expr::Cast { .. } | Expr::InstanceOf { .. })
     };
     // Downcast witness: a SPECIFIC-ref value whose static type does not
     // fit the specific-ref target (`v9($1) = v7` with v7:
@@ -4309,18 +4319,18 @@ pub fn insert_object_narrowing_casts(
     // emitter's (Object) relay and still compiles. Framework types the
     // pool cannot order take the cast too: a downcast renders directly,
     // an unrelated pair relays.
-    let needs_downcast = |e: &Expr, tt: &JavaType| -> bool {
-        if matches!(e, Expr::Const(_) | Expr::Cast { .. } | Expr::InstanceOf { .. }) {
-            return false;
-        }
-        let v = value_ty(e);
-        let (JavaType::Object(vn), JavaType::Object(tn)) = (&v, tt) else {
+    let needs_downcast = |vty: &JavaType, tt: &JavaType| -> bool {
+        let (JavaType::Object(vn), JavaType::Object(tn)) = (vty, tt) else {
             return false;
         };
         if vn.as_ref() == "java/lang/Object" || tn.as_ref() == "java/lang/Object" {
             return false;
         }
         vn != tn && !pool.is_subtype(vn, tn)
+    };
+    // Combined decision on a materialized value type.
+    let wants_cast = |e: &Expr, vty: &JavaType, tt: &JavaType| -> bool {
+        non_cast_shape(e) && (is_top_object_ty(vty) || needs_downcast(vty, tt))
     };
     walk_mut_deep(body, &mut |st| match st {
         Stmt::ExprStmt(Expr::Assign {
@@ -4329,38 +4339,60 @@ pub fn insert_object_narrowing_casts(
             op: AssignOp::Plain,
             ..
         }) => {
-            let tgt = match &**target {
-                Expr::Local { var, .. } => vt.var(*var).ty.clone(),
-                Expr::Field { ty, .. } => ty.clone(),
+            // Decide on materialized erased types (one per side); the
+            // old code cloned the whole target TypeRef per statement
+            // before knowing whether a cast fires at all.
+            let tgt_erased: JavaType;
+            let tgt_ref: Option<&TypeRef>;
+            match &**target {
+                Expr::Local { var, .. } => {
+                    let ty = &vt.var(*var).ty;
+                    tgt_erased = ty.erased();
+                    tgt_ref = Some(ty);
+                }
+                Expr::Field { ty, .. } => {
+                    tgt_erased = ty.erased();
+                    tgt_ref = Some(ty);
+                }
                 // Array-element store `arr[i] = value`: the target type is
-                // the ELEMENT type. Without this arm an Object→element
-                // assignment (`String[] a; a[0] = pair.first` — Pair.first
-                // erases to Object) skipped the cast and failed "Object
-                // 无法转换为String" (weixin ×~150). Resolve the array's type
-                // through the vt (the embedded Local ty can lag infer_types).
+                // the ELEMENT type (Object→element assignments failed
+                // "Object无法转换为String", weixin ×~150 — see history).
                 Expr::ArrayIndex { array, .. } => {
                     let aty = match &**array {
                         Expr::Local { var, .. } => vt.var(*var).ty.erased(),
                         other => other.type_ref().erased(),
                     };
                     match aty {
-                        JavaType::Array(inner) => TypeRef::J(*inner),
+                        JavaType::Array(inner) => {
+                            tgt_erased = *inner;
+                            tgt_ref = None;
+                        }
                         _ => return,
                     }
                 }
                 _ => return,
+            }
+            // Specific check: the J-arm patterns fall through without
+            // erasing; the array-element arm (no TypeRef to borrow)
+            // re-materializes the erased form.
+            let specific = match tgt_ref {
+                Some(tr) => specific_ref(tr),
+                None => specific_ref(&TypeRef::J(tgt_erased.clone())),
             };
-            if let Some(t) = specific_ref(&tgt) {
-                if castable(value) || needs_downcast(value, &tgt.erased()) {
-                    let v = std::mem::replace(value, Box::new(Expr::This));
-                    **value = Expr::Cast { ty: t, e: v };
-                }
+            let Some(t) = specific else {
+                return;
+            };
+            let vty = value_ty(value);
+            if wants_cast(value, &vty, &tgt_erased) {
+                let v = std::mem::replace(value, Box::new(Expr::This));
+                **value = Expr::Cast { ty: t, e: v };
             }
         }
         Stmt::LocalDef { var, init: Some(value), .. } => {
             if let Some(t) = specific_ref(&vt.var(*var).ty) {
                 let tt = vt.var(*var).ty.erased();
-                if castable(value) || needs_downcast(value, &tt) {
+                let vty = value_ty(value);
+                if wants_cast(value, &vty, &tt) {
                     let v = std::mem::replace(value, Expr::This);
                     *value = Expr::Cast {
                         ty: t,
@@ -4371,7 +4403,8 @@ pub fn insert_object_narrowing_casts(
         }
         Stmt::Return(Some(value)) => {
             if let Some(t) = specific_ref(&TypeRef::J(ret.clone())) {
-                if castable(value) || needs_downcast(value, ret) {
+                let vty = value_ty(value);
+                if wants_cast(value, &vty, ret) {
                     let v = std::mem::replace(value, Expr::This);
                     *value = Expr::Cast { ty: t, e: Box::new(v) };
                 }
@@ -4404,7 +4437,8 @@ pub fn insert_object_narrowing_casts(
                 let Some(t) = specific_ref(&TypeRef::J(formal.clone())) else {
                     continue;
                 };
-                if !(castable(a) || needs_downcast(a, formal)) {
+                let aty = value_ty(a);
+                if !wants_cast(a, &aty, formal) {
                     continue;
                 }
                 let v = std::mem::replace(a, Expr::Const(ConstVal::Null));
