@@ -2531,6 +2531,45 @@ pub fn drop_empty_finallies(body: &mut Stmt) {
     });
 }
 
+/// Last-chance dead-assignment sweep: `v = <pure value>` where `v` is
+/// never read ANYWHERE is semantically dead regardless of which late
+/// pass minted it (phi remnant, ctor diamond fold, scope-leaked temp —
+/// the regular drop_dead_locals runs mid-pipeline and misses statements
+/// minted after it). The pure gate keeps every observable side effect.
+pub fn final_dead_assigns(body: &mut Stmt) {
+    // Reads per var (assignment targets excluded) over the whole tree.
+    let mut reads: Vec<usize> = Vec::new();
+    count_reads(body, &mut reads);
+    let is_dead = |st: &Stmt| -> bool {
+        let Stmt::ExprStmt(Expr::Assign {
+            target,
+            value,
+            op: jdc_core::ir::expr::AssignOp::Plain,
+            ..
+        }) = st
+        else {
+            return false;
+        };
+        let Expr::Local { var, .. } = &**target else {
+            return false;
+        };
+        reads.get(*var as usize).copied().unwrap_or(0) == 0 && !has_side_effects(value)
+    };
+    // Replace IN PLACE: the assignment can sit as a single-statement If
+    // arm or a bare case body where no container retain ever reaches it
+    // (the bare-Vec/Block blind spot, switch case body / For init).
+    walk_mut_deep(body, &mut |st| {
+        if is_dead(st) {
+            *st = Stmt::Block(vec![]);
+        }
+    });
+    walk_mut_deep(body, &mut |st| {
+        if let Stmt::Block(v) = st {
+            v.retain(|x| !is_dead(x));
+        }
+    });
+}
+
 /// Drop orphan value pushes that render as `/* X; */` comments: expression
 /// statements whose expression cannot throw or bind — plain locals,
 /// constants, `this`, and field reads on the implicit `this` (owner: None;

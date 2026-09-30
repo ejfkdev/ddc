@@ -670,6 +670,7 @@ pub fn decompile_method(
     passes::dedupe_multicatch(&mut body, pool);
     passes::strip_phantom_field_writes(&mut body, pool);
     passes::init_bare_decls(&mut body, &vt);
+    passes::final_dead_assigns(&mut body);
         if !errors.is_empty() {
             passes::prepend_comment(
                 &mut body,
@@ -678,14 +679,6 @@ pub fn decompile_method(
         }
         phase_hit_n(2, n, t_fix);
         record_bucket(n, t0);
-        if std::env::var("DDC_DBG_PHI").is_ok() {
-            for id in 88..96 {
-                if (id as usize) < vt.vars.len() {
-                    let v = &vt.vars[id as usize];
-                    eprintln!("[vt-final] v{} name={} ty={} slot={} synth={}", id, v.name, v.ty.erased(), v.slot, v.synthetic_name);
-                }
-            }
-        }
         return Ok(Some(MethodBody { body, vt, desc }));
     }
 
@@ -1030,6 +1023,7 @@ pub fn decompile_method(
     passes::dedupe_multicatch(&mut body, pool);
     passes::strip_phantom_field_writes(&mut body, pool);
     passes::init_bare_decls(&mut body, &vt);
+    passes::final_dead_assigns(&mut body);
 
     if std::env::var("DDC_DBG_PHI").is_ok() {
         for (id, v) in vt.vars.iter().enumerate() {
