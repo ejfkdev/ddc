@@ -1262,10 +1262,15 @@ pub fn case_rename_map(pool: &DexPool) -> HashMap<String, String> {
     for t in top_level_classes(pool) {
         groups.entry(t.to_lowercase()).or_default().push(t);
     }
-    let folds: std::collections::HashSet<String> = groups.keys().cloned().collect();
+    // No `folds` clone: the fold check consults `groups` itself (the old
+    // full HashSet<String> of every lowercase key was a ~25-30MB pure
+    // duplicate on the large corpora). Sort in place first, then an
+    // IMMUTABLE walk keeps the keys queryable for the fold lookup.
+    for v in groups.values_mut() {
+        v.sort();
+    }
     let mut map = HashMap::default();
-    for (_, mut members) in groups {
-        members.sort();
+    for members in groups.values() {
         for (i, m) in members.iter().enumerate() {
             if i == 0 {
                 map.insert(m.clone(), m.clone());
@@ -1278,7 +1283,7 @@ pub fn case_rename_map(pool: &DexPool) -> HashMap<String, String> {
             loop {
                 let cand = format!("{}{}_{}", &m[..cut], &m[cut..], n);
                 let fold = cand.to_lowercase();
-                if !folds.contains(&fold) {
+                if !groups.contains_key(&fold) {
                     map.insert(m.clone(), cand);
                     break;
                 }
