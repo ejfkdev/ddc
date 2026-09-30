@@ -1314,7 +1314,7 @@ pub fn strip_phantom_field_writes(body: &mut Stmt, pool: &DexPool) {
                 .iter()
                 .chain(pc.instance_fields.iter())
                 .any(|f| {
-                    f.name.as_str() == name
+                    f.name.as_ref() == name
                         || jdc_core::rename::field_display(cls, &f.name, &f.desc)
                             .is_some_and(|d| d == name)
                 })
@@ -4611,7 +4611,7 @@ pub fn fix_shadowed_super_fields(
             .static_fields
             .iter()
             .chain(pc.instance_fields.iter())
-            .find(|f| f.name.as_str() == name)?;
+            .find(|f| f.name.as_ref() == name)?;
         Some(
             jdc_core::rename::field_display(cls, name, &f.desc)
                 .map(|d| d.to_string())
@@ -4747,7 +4747,7 @@ pub fn fix_field_owner_downcasts(body: &mut Stmt, vt: &VarTable, pool: &DexPool)
                 .instance_fields
                 .iter()
                 .chain(pc.static_fields.iter())
-                .any(|f| f.name.as_str() == name)
+                .any(|f| f.name.as_ref() == name)
             {
                 return true;
             }
@@ -8800,7 +8800,7 @@ pub fn strip_enum_const_inits(s: &mut Stmt, class: &crate::PoolClass) {
         .static_fields
         .iter()
         .filter(|f| f.access & crate::access::ACC_ENUM != 0)
-        .map(|f| f.name.as_str())
+        .map(|f| f.name.as_ref())
         .collect();
     if const_fields.is_empty() {
         return;
@@ -13969,7 +13969,7 @@ fn inline_ref_ok(pool: &DexPool, host: &str, target: &str, member: Option<(&str,
                                 .iter()
                                 .chain(pc.instance_fields.iter())
                                 .any(|f| {
-                                    f.name == mname
+                                    f.name.as_ref() == mname
                                         && f.access & crate::access::ACC_PUBLIC != 0
                                 })
                         };
@@ -13984,7 +13984,7 @@ fn inline_ref_ok(pool: &DexPool, host: &str, target: &str, member: Option<(&str,
                                 pc.static_fields
                                     .iter()
                                     .chain(pc.instance_fields.iter())
-                                    .any(|f| f.name == mname)
+                                    .any(|f| f.name.as_ref() == mname)
                             })
                         {
                             return false;

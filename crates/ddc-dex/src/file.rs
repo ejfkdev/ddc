@@ -409,6 +409,15 @@ impl DexFile {
         }
     }
 
+    /// Type descriptor as a shared clone (the pool's field descriptors —
+    /// the string table IS the dedup layer).
+    pub fn type_name_arc(&self, idx: u32) -> std::sync::Arc<str> {
+        match self.types.get(idx as usize) {
+            Some(&si) => self.string_arc(si),
+            None => std::sync::Arc::from(""),
+        }
+    }
+
     pub fn type_count(&self) -> usize {
         self.types.len()
     }

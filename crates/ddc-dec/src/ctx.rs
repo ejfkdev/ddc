@@ -100,7 +100,7 @@ impl<'a> DexCtx<'a> {
             return false;
         };
         pc.instance_fields.iter().any(|f| {
-            f.name == "this$0"
+            f.name.as_ref() == "this$0"
                 && f
                     .desc
                     .strip_prefix('L')
@@ -352,7 +352,7 @@ impl<'a> Ctx for DexCtx<'a> {
             .static_fields
             .iter()
             .chain(pc.instance_fields.iter())
-            .find(|f| f.name == name)?
+            .find(|f| f.name.as_ref() == name)?
             .access;
         Some(raw_field_flags(raw))
     }
@@ -577,7 +577,7 @@ pub fn nested_is_static(pool: &DexPool, pc: &PoolClass) -> bool {
         return true;
     };
     let holds = pc.instance_fields.iter().any(|f| {
-        f.name == "this$0"
+        f.name.as_ref() == "this$0"
             && f
                 .desc
                 .strip_prefix('L')

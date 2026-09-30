@@ -655,7 +655,7 @@ fn collect_enum_constants(
                 // promoted constant declares under it, which is exactly
                 // what every pool reference resolves through.
                 let bound = const_fields.iter().any(|f| {
-                    f.name.as_str() == &**fname
+                    f.name.as_ref() == &**fname
                         || jdc_core::rename::field_display(
                             class.name.as_str(),
                             &f.name,
@@ -1468,7 +1468,7 @@ fn enum_synth_active(class: &PoolClass) -> bool {
             .static_fields
             .iter()
             .chain(class.instance_fields.iter())
-            .any(|f| f.name == ENUM_NAME_FIELD || f.name == ENUM_ORD_FIELD)
+            .any(|f| &*f.name == ENUM_NAME_FIELD || &*f.name == ENUM_ORD_FIELD)
 }
 
 /// Does the class have the compiler-generated `(String, int, ..)` enum
@@ -1530,7 +1530,7 @@ fn synth_enum_members(
     // values(): from the $VALUES array field when the dex copy is gone.
     if !has_values {
         let want = format!("[L{};", class.name);
-        if let Some(vf) = class.static_fields.iter().find(|f| f.desc == want) {
+        if let Some(vf) = class.static_fields.iter().find(|f| &*f.desc == want.as_str()) {
             if *emitted_any {
                 out.push('\n');
             }
@@ -1969,8 +1969,8 @@ fn emit_class_body(
                 .as_ref()
                 .is_some_and(|s| {
                     s.contains(&(
-                        std::sync::Arc::from(f.name.as_str()),
-                        std::sync::Arc::from(f.desc.as_str()),
+                        f.name.clone(),
+                        f.desc.clone(),
                     ))
                 });
         emit_field(
@@ -3980,7 +3980,7 @@ pub(crate) fn install_access_widening(pool: &crate::DexPool) {
                 match pc.static_fields
                     .iter()
                     .chain(pc.instance_fields.iter())
-                    .find(|f| f.name == name.as_str())
+                    .find(|f| f.name.as_ref() == name.as_str())
                 {
                     Some(f) if f.access & crate::access::ACC_PUBLIC == 0 => {
                         fields

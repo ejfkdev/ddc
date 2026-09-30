@@ -69,9 +69,12 @@ pub mod access {
 /// One field of a pooled class.
 #[derive(Debug, Clone)]
 pub struct PoolField {
-    pub name: String,
-    /// Field descriptor (`I`, `Ljava/lang/String;`, ...).
-    pub desc: String,
+    /// Shared with the dex string table (field names repeat massively
+    /// under R8's single-letter namespace — one Arc per unique name).
+    pub name: std::sync::Arc<str>,
+    /// Field descriptor (`I`, `Ljava/lang/String;`, ...) — shared per
+    /// unique descriptor through the same table.
+    pub desc: std::sync::Arc<str>,
     pub access: u32,
     pub is_static: bool,
 }
@@ -191,7 +194,7 @@ impl PoolClass {
         self.static_fields
             .iter()
             .chain(self.instance_fields.iter())
-            .find(|f| f.name == name)
+            .find(|f| f.name.as_ref() == name)
             .map(|f| f.access)
     }
 }
@@ -897,8 +900,8 @@ fn pool_class_of(dex: &DexFile, raw: &[u8], cd: &ClassDef, dex_idx: usize) -> Po
     let mk_field = |ef: &ddc_dex::EncodedField, is_static: bool| {
         let f = dex.field(ef.field_idx);
         PoolField {
-            name: dex.string(f.name_idx).to_string(),
-            desc: dex.type_name(f.type_idx).to_string(),
+            name: dex.string_arc(f.name_idx),
+            desc: dex.type_name_arc(f.type_idx),
             access: ef.access_flags,
             is_static,
         }
@@ -2701,7 +2704,7 @@ fn member_collision_renames(
                     Some(ord)
                         if f.access & crate::access::ACC_SYNTHETIC != 0
                             && !f.is_static
-                            && *ord == f.desc =>
+                            && *ord == *f.desc =>
                     {
                         let mut k = 0u32;
                         loop {
@@ -2896,7 +2899,7 @@ fn member_collision_renames(
                 // hold at that scale (改名面 vs 引用覆盖面, again).
                 let want_desc = format!("L{nested};");
                 for f in pc.static_fields.iter().chain(pc.instance_fields.iter()) {
-                    if f.desc != want_desc {
+                    if f.desc.as_ref() != want_desc.as_str() {
                         continue;
                     }
                     let disp = crate::classdec::java_ident(&f.name).into_owned();
@@ -2917,8 +2920,8 @@ fn member_collision_renames(
                     out.entry(std::sync::Arc::from(name.as_str()))
                         .or_default()
                         .push(jdc_core::rename::FieldRename {
-                            name: std::sync::Arc::from(f.name.as_str()),
-                            desc: std::sync::Arc::from(f.desc.as_str()),
+                            name: f.name.clone(),
+                            desc: f.desc.clone(),
                             display: std::sync::Arc::from(display.as_str()),
                         });
                 }
@@ -3543,7 +3546,7 @@ fn register_field_rename_with_subs(
                     pc.static_fields
                         .iter()
                         .chain(pc.instance_fields.iter())
-                        .any(|f| f.name == fname && f.desc == fdesc)
+                        .any(|f| f.name.as_ref() == fname && f.desc.as_ref() == fdesc)
                 })
                 .unwrap_or(false)
         };
@@ -3644,7 +3647,7 @@ fn inherited_obscuring_renames(
                 if fdisp.starts_with("this$") || !child_displays.contains(&fdisp) {
                     continue;
                 }
-                if !renamed.insert((sname.clone(), f.name.to_string(), f.desc.clone())) {
+                if !renamed.insert((sname.clone(), f.name.to_string(), f.desc.to_string())) {
                     continue;
                 }
                 // Mint in the DECLARING class's namespace: avoid its
@@ -3776,7 +3779,7 @@ fn field_deshadow_renames(
                 cand
                     .entry(name.clone())
                     .or_default()
-                    .push((disp, f.name.clone(), f.desc.clone(), f.access));
+                    .push((disp, f.name.to_string(), f.desc.to_string(), f.access));
             }
         }
     }
