@@ -123,7 +123,7 @@ fn cmp_name(off: u32, name: &[u8]) -> std::cmp::Ordering {
 }
 
 /// Binary search: internal name -> class record index.
-fn find(name: &str) -> Option<u32> {
+pub fn find(name: &str) -> Option<u32> {
     let n = class_count();
     let base = off_classes();
     let nb = name.as_bytes();

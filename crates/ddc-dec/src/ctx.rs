@@ -373,6 +373,10 @@ impl<'a> Ctx for DexCtx<'a> {
             .unwrap_or(false)
     }
 
+    fn is_fw_shadow(&self, internal: &str) -> bool {
+        crate::is_fw_shadow(internal)
+    }
+
     fn declares_field_display(&self, internal: &str, display: &str) -> bool {
         let pc = if internal == self.class.name {
             self.class

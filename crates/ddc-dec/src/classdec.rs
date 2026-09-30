@@ -315,7 +315,13 @@ fn decompile_class_impl(
             if pool.get(&r).is_some() {
                 // The import renders under the RENAMED display — the
                 // blocked check must use the same name the refs render.
-                let display = crate::apply_class_rename(&r);
+                // Framework-shadow stubs render (and import) their RAW
+                // framework FQN — the reference means the platform class.
+                let display = if crate::is_fw_shadow(&r) {
+                    std::borrow::Cow::Borrowed(r.as_str())
+                } else {
+                    crate::apply_class_rename(&r)
+                };
                 let simple = display.rsplit(['/', '$']).next().unwrap_or("");
                 if !simple.is_empty()
                     && !blocked.contains(simple)
@@ -327,7 +333,14 @@ fn decompile_class_impl(
         }
         let mut imports: Vec<String> = import_set
             .iter()
-            .map(|internal| crate::classdec::dotted(&crate::apply_class_rename(internal)))
+            .map(|internal| {
+                let renamed = if crate::is_fw_shadow(internal) {
+                    std::borrow::Cow::Borrowed(internal.as_str())
+                } else {
+                    crate::apply_class_rename(internal)
+                };
+                crate::classdec::dotted(&renamed)
+            })
             .collect();
         imports.sort();
         // Body-discovered (recorded) refs joined after the pre-emission
@@ -4373,7 +4386,17 @@ pub fn print_class_name(pool: &DexPool, internal: &str) -> String {
         return sanitize_ref(&simple);
     }
     let orig_internal: &str = internal;
-    let cow = crate::apply_class_rename(internal);
+    // Framework-shadow stub: the reference means the PLATFORM class —
+    // render the raw FQN (only the stub's own FILE identity moved).
+    let shadow_skip = crate::is_fw_shadow(internal);
+    if std::env::var("DDC_DBG_FW").is_ok() && internal.contains("ImageDecoder") {
+        eprintln!("[fw] print_class_name input={internal} skip={shadow_skip}");
+    }
+    let cow = if shadow_skip {
+        std::borrow::Cow::Borrowed(internal)
+    } else {
+        crate::apply_class_rename(internal)
+    };
     let internal: &str = &cow;
     // The pool indexes PRE-rename internals. The ddcroot ROOT-PACKAGE
     // RELOCATION renames `Foo$Bar` to `ddcroot/Foo$Bar` and the pool

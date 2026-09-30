@@ -1912,6 +1912,7 @@ pub fn install_case_renames(pool: &DexPool) {
     // PREFIXES them with the synthetic package) — runs after every
     // simple-name rule has minted.
     root_pkg_relocation(pool, &mut map);
+    fw_shadow_relocation(pool, &mut map);
     crate::stats_rss("  lossy+root-pkg rules");
     jdc_core::rename::set_class_renames(map);
     crate::stats_rss("class-renames installed");
@@ -3905,6 +3906,105 @@ pub fn root_pkg_display() -> Option<String> {
 /// settled displays). Fidelity note: declared package no longer matches
 /// the binary name — the same trade every rename rule here makes, on a
 /// cohort whose cross-package render is otherwise dead code.
+/// Pool classes that shadow a FRAMEWORK class (d8 desugar stubs at the
+/// framework FQN). The FILE identity relocates to the synthetic package,
+/// but every REFERENCE renders the raw framework name — the bytecode's
+/// FQN means the platform class (the stub is dead code the boot
+/// classpath outranks).
+pub(crate) static FW_SHADOW: std::sync::OnceLock<
+    std::sync::Arc<jdc_core::FxHashSet<String>>,
+> = std::sync::OnceLock::new();
+
+/// True when `internal` is a framework-shadow stub (fast empty-set
+/// check when no corpus stubs exist).
+pub fn is_fw_shadow(internal: &str) -> bool {
+    let Some(s) = FW_SHADOW.get() else { return false };
+    // Exact hit, or any $-chain PREFIX hits: a nested FRAMEWORK member
+    // of a stub outer (`ImageDecoder$Source` with the stub
+    // `ImageDecoder` in the pool) renders through the $-walk of the
+    // stub's map entry — it must keep the raw framework name too.
+    if s.contains(internal) {
+        return true;
+    }
+    let mut idx = internal.len();
+    while let Some(i) = internal[..idx].rfind('$') {
+        if s.contains(&internal[..i]) {
+            return true;
+        }
+        idx = i;
+    }
+    false
+}
+
+/// d8's library/API desugaring embeds STUB classes under the framework's
+/// own names (`android.graphics.Insets`, `android.app.Person` — minimal
+/// shapes the runtime never loads, the boot classpath wins). Emitted at
+/// their FQN they SHADOW the real framework class for every OTHER file
+/// at compile time: javac resolves `android.graphics.Insets` to the
+/// field-less stub and `insets.top` dies (reqable r2: the whole Insets
+/// family). Relocate every pool class whose head resolves in the
+/// embedded framework DB to a synthetic package; the rename registry
+/// carries every reference.
+fn fw_shadow_relocation(pool: &DexPool, map: &mut HashMap<String, String>) {
+    let root_segs = pool.root_pkg_segs();
+    // ANDROID-namespace only: a framework-shadow stub in another
+    // namespace is usually a REAL bundled implementation (weibo ships
+    // its own full org.json — relocating it broke every org.json user,
+    // +86). d8's API-desugar stubs live under android/.
+    let shadow_set: std::sync::Arc<jdc_core::FxHashSet<String>> =
+        std::sync::Arc::new(
+            pool.order
+                .iter()
+                .filter(|n| n.starts_with("android/"))
+                .filter(|n| {
+                    let head = n.split('$').next().unwrap_or(n);
+                    crate::fwdb::find(head).is_some()
+                })
+                .map(|n| n.to_string())
+                .collect(),
+        );
+    let _ = FW_SHADOW.set(shadow_set.clone());
+    jdc_core::rename::set_fw_shadow(
+        shadow_set.iter().cloned().collect(),
+    );
+    let mut pkg = "ddcfwstub".to_string();
+    while pool.has_name(&pkg) || root_segs.contains(&pkg) {
+        pkg.push('_');
+    }
+    let mut moved = 0usize;
+    for name in &pool.order {
+        // The relocation decision keys on the $-chain HEAD (a nested
+        // stub rides its outer's identity); nested-of-pool-outer shapes
+        // stay entry-less so apply_class_rename's $-walk composes them
+        // through the relocated outer (the VasUIToken exact-entry
+        // lesson from root_pkg_relocation). Android-namespace only —
+        // see the set build above.
+        if !name.starts_with("android/") {
+            continue;
+        }
+        let head = name.split('$').next().unwrap_or(name);
+        if crate::fwdb::find(head).is_none() {
+            continue;
+        }
+        if head != name && pool.has_name(head) {
+            continue;
+        }
+        let disp = map.get(name).cloned().unwrap_or_else(|| name.clone());
+        if disp != *name {
+            // An earlier rule renamed this class (obscuring/collision
+            // family) — its display already diverges from the FQN and
+            // the relocation prefix applies to the settled display.
+            map.insert(name.clone(), format!("{pkg}/{disp}"));
+        } else {
+            map.insert(name.clone(), format!("{pkg}/{name}"));
+        }
+        moved += 1;
+    }
+    if std::env::var("DDC_STATS").is_ok() {
+        eprintln!("[renames] fw-shadow relocation: {moved} classes -> {pkg}");
+    }
+}
+
 fn root_pkg_relocation(pool: &DexPool, map: &mut HashMap<String, String>) {
     // Gate on NAMES only (identical verdict in lazy browse and full
     // decompile — the display must not depend on materialization):
