@@ -373,6 +373,26 @@ impl<'a> Ctx for DexCtx<'a> {
             .unwrap_or(false)
     }
 
+    fn declares_field_display(&self, internal: &str, display: &str) -> bool {
+        let pc = if internal == self.class.name {
+            self.class
+        } else {
+            match self.find_class(internal) {
+                Some(pc) => pc,
+                None => return false,
+            }
+        };
+        pc.static_fields
+            .iter()
+            .chain(pc.instance_fields.iter())
+            .any(|f| {
+                let disp = jdc_core::rename::field_display(internal, &f.name, &f.desc)
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| crate::classdec::java_ident(&f.name).into_owned());
+                disp == display
+            })
+    }
+
     fn declares_method_named(&self, internal: &str, name: &str) -> bool {
         self.find_class(internal)
             .map(|pc| pc.all_methods().any(|m| &*m.name == name))
