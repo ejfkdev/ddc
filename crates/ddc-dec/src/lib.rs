@@ -2668,11 +2668,21 @@ fn member_collision_renames(
             let disp = crate::classdec::java_ident(&f.name).into_owned();
             fgroups.entry(disp).or_default().push(f);
         }
-        let f_taken: jdc_core::FxHashSet<String> = fields
+        let mut f_taken: jdc_core::FxHashSet<String> = fields
             .iter()
             .map(|f| crate::classdec::java_ident(&f.name).into_owned())
             .collect();
-        let mut f_taken = f_taken;
+        // Displays already registered under THIS class by ancestor
+        // subs-propagation (an ancestor processed earlier in pool.order
+        // pushed its renames down): the own mints must avoid them or
+        // two fields in one class render the same display
+        // ("已在类中定义了变量 a2", weibo bx$b: subs-pushed bv→a2 beside
+        // its own String→a2).
+        if let Some(v) = out.get(&std::sync::Arc::from(name.as_str())) {
+            for fr in v {
+                f_taken.insert(fr.display.to_string());
+            }
+        }
         for group in fgroups.values() {
             if group.len() < 2 {
                 continue;
@@ -2707,13 +2717,18 @@ fn member_collision_renames(
                     }
                     _ => suffix_unique(&base, &mut f_taken),
                 };
-                out.entry(std::sync::Arc::from(name.as_str()))
-                    .or_default()
-                    .push(jdc_core::rename::FieldRename {
-                        name: std::sync::Arc::from(f.name.as_str()),
-                        desc: std::sync::Arc::from(f.desc.as_str()),
-                        display: std::sync::Arc::from(display.as_str()),
-                    });
+                // Register with subclass propagation: dex refs of an
+                // inherited field may name ANY hierarchy class as owner
+                // (R8 writes the referrer), and without the propagation
+                // the declaring class's rename does not reach the
+                // subclass-keyed lookups — the ref renders the RAW name
+                // against a renamed declaration (bx$b read its inherited
+                // `a:Lcom/xiaomi/push/bv;` as `this.a` while bx$a
+                // declared it `a2`). Mirrors the method-side hierarchy
+                // consistency rule.
+                register_field_rename_with_subs(
+                    pool, &subs, &mut out, name, &f.name, &f.desc, &display,
+                );
             }
         }
         // ---- fields obscuring nested types (JLS 6.4.2) ----
@@ -2787,6 +2802,24 @@ fn member_collision_renames(
             for f in &fields {
                 let fdisp = crate::classdec::java_ident(&f.name).into_owned();
                 if fdisp.starts_with("this$") || !obscuring.contains(fdisp.as_str()) {
+                    continue;
+                }
+                // Already renamed by the same-class duplicate-group rule?
+                // Its display no longer equals the obscuring simple name,
+                // so this rule's target collision does not exist — and
+                // minting a SECOND entry for the same (name, desc) with
+                // subs-propagation put a CONFLICTING display under every
+                // subclass: refs naming the subclass resolved to one name
+                // while the declaring class's declaration rendered the
+                // first entry's (weibo bx$b read its inherited
+                // `a:Lcom/xiaomi/push/bv;` as `this.a8` while bx$a
+                // declared it `a2` — the R8 same-name-field family).
+                let already = out
+                    .get(&std::sync::Arc::from(name.as_str()))
+                    .is_some_and(|v| {
+                        v.iter().any(|fr| *fr.name == *f.name && *fr.desc == *f.desc)
+                    });
+                if already {
                     continue;
                 }
                 let mut k = 1u32;
@@ -3422,6 +3455,17 @@ fn member_collision_renames(
                             jdc_core::FxHashSet::default();
                         seen.insert(disp.to_string());
                         for e in entries.iter_mut() {
+                            // FIELD entries never re-mint here: this is
+                            // the METHOD-name propagation, and a field
+                            // display colliding with a forced method
+                            // display is resolved at the field's own mint
+                            // (f_taken seeding above), not by renaming the
+                            // field out from under its subs-registered
+                            // references (bx$b's inherited bv→a2 was
+                            // reminted to a7 while every ref kept a2).
+                            if !e.desc.contains('(') {
+                                continue;
+                            }
                             if *e.name == *n && *e.desc == *d {
                                 continue;
                             }
