@@ -463,6 +463,20 @@ pub fn decompile_method(
     // order hasher-dependent (SipHash seeds per process: output was NOT
     // byte-stable across runs; 243/5579 files wobbled on reqable).
     // Sorted block ids here + sorted preds below pin every tie.
+    if std::env::var("DDC_DBG_PHI").is_ok() {
+        let mut ks: Vec<_> = phis.keys().copied().collect();
+        ks.sort();
+        for (b, r) in ks {
+            eprintln!("[phi] merge={} reg={} var={} name={}", b, r, phis[&(b, r)], vt.var(phis[&(b, r)]).name);
+        }
+        let mut mo: Vec<usize> = appends.keys().copied().collect();
+        mo.sort_unstable();
+        for bid in mo {
+            for (p, pc, v, e) in &appends[&bid] {
+                eprintln!("[append] merge={} pred={} pc={} var={}({}) val={:?}", bid, p, pc, v, vt.var(*v).name, e);
+            }
+        }
+    }
     let mut merge_order: Vec<usize> = appends.keys().copied().collect();
     merge_order.sort_unstable();
     let mut per_pred: HashMap<usize, Vec<(u32, u32, Expr)>> = HashMap::default();
@@ -664,6 +678,14 @@ pub fn decompile_method(
         }
         phase_hit_n(2, n, t_fix);
         record_bucket(n, t0);
+        if std::env::var("DDC_DBG_PHI").is_ok() {
+            for id in 88..96 {
+                if (id as usize) < vt.vars.len() {
+                    let v = &vt.vars[id as usize];
+                    eprintln!("[vt-final] v{} name={} ty={} slot={} synth={}", id, v.name, v.ty.erased(), v.slot, v.synthetic_name);
+                }
+            }
+        }
         return Ok(Some(MethodBody { body, vt, desc }));
     }
 
@@ -1009,6 +1031,13 @@ pub fn decompile_method(
     passes::strip_phantom_field_writes(&mut body, pool);
     passes::init_bare_decls(&mut body, &vt);
 
+    if std::env::var("DDC_DBG_PHI").is_ok() {
+        for (id, v) in vt.vars.iter().enumerate() {
+            if matches!(v.name.as_str(), "p02x" | "p03x" | "linkedList10" | "linkedList" | "p0x") {
+                eprintln!("[vt-final] v{} name={} ty={} slot={} synth={}", id, v.name, v.ty.erased(), v.slot, v.synthetic_name);
+            }
+        }
+    }
     if !errors.is_empty() {
         passes::prepend_comment(
             &mut body,
@@ -1358,6 +1387,17 @@ fn merge_states(
             continue;
         }
         // Diverged: phi var.
+        if std::env::var("DDC_DBG_PHI").is_ok() {
+            let sides_dbg: Vec<String> = sides
+                .iter()
+                .map(|s| match s.get(r) {
+                    Some(Reg::Live(v)) => format!("L{}({})", v, vt.var(*v).ty.erased()),
+                    Some(Reg::Pending(e) | Reg::PendingCall(e)) => format!("P({})", e.type_ref().erased()),
+                    _ => "U".into(),
+                })
+                .collect();
+            eprintln!("[phi-div] merge={} reg={} sides={:?}", bid, r, sides_dbg);
+        }
         let key = (bid, r as u16);
         let phi = match phis.get(&key) {
             Some(&v) => v,

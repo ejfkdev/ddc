@@ -11327,7 +11327,12 @@ pub fn fix_int_returns(vt: &VarTable, body: &mut Stmt) {
 /// different classes, or prim→ref. NOT numeric-vs-numeric (promotion
 /// handles those) and NOT Object targets (assignable — the narrowing
 /// cast pass covers the value side).
+static WIDEN_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 pub fn split_generations(vt: &mut VarTable, body: &mut Stmt, pool: &DexPool) {
+    if std::env::var("DDC_DBG_PHI").is_ok() {
+        eprintln!("[widen] cumulative={}", WIDEN_COUNT.load(std::sync::atomic::Ordering::Relaxed));
+    }
     let mut counter: u32 = 0;
     let mut gen: std::collections::HashMap<u32, u32> = std::collections::HashMap::default();
     split_walk_stmt(body, vt, &mut gen, &mut counter, pool);
@@ -11492,14 +11497,21 @@ fn do_split(
 /// value is silently lost AND the orphan renders undeclared (kt5.b
 /// Kotlin default-arg bridge: `v18_g1 = p6x` in then vs `v18 = false`
 /// in else, `this(.., v18, ..)` reads only else's value).
-fn rename_gen_back(s: &mut Stmt, from: u32, to: u32, vt: &VarTable) {
-    if from == to || (to as usize) >= vt.vars.len() {
+/// Batched rename_gen_back: one LocalDef pass + one expression pass with
+/// a var→(target, ty) table, instead of two full subtree walks per undone
+/// candidate (475k widenings on weixin paid 15µs each in walks).
+fn rename_gen_back_batch(s: &mut Stmt, pairs: &[(u32, u32)], vt: &VarTable) {
+    use jdc_core::FxHashMap;
+    if pairs.is_empty() {
         return;
     }
-    let to_ty = vt.vars[to as usize].ty.clone();
+    let map: FxHashMap<u32, (u32, JavaType)> = pairs
+        .iter()
+        .map(|&(from, to)| (from, (to, vt.vars[to as usize].ty.erased())))
+        .collect();
     walk_mut_deep(s, &mut |st| {
         if let Stmt::LocalDef { var, .. } = st {
-            if *var == from {
+            if let Some(&(to, _)) = map.get(var) {
                 *var = to;
             }
         }
@@ -11507,9 +11519,9 @@ fn rename_gen_back(s: &mut Stmt, from: u32, to: u32, vt: &VarTable) {
     rewrite_exprs(s, &mut |e| {
         deep_rewrite(e, &mut |x| {
             if let Expr::Local { var, ty } = x {
-                if *var == from {
+                if let Some(&(to, ref to_ty)) = map.get(var) {
                     *var = to;
-                    *ty = to_ty.clone();
+                    *ty = TypeRef::J(to_ty.clone());
                 }
             }
         });
@@ -11537,6 +11549,114 @@ fn drop_gen_slot(vt: &mut VarTable, dead: u32) {
 /// or cross-class merge would forge `String k = <boolean>`-style
 /// assignments that never compile (the lark/weibo/reqable regression
 /// of the ungated first cut: +8.4k `不兼容的类型`).
+/// Pool/framework-aware least-upper-bound of two reference classes
+/// (internal names): the most specific common ancestor through supers and
+/// interfaces. `None` when nothing more specific than Object is common —
+/// widening to Object would break member accesses on the base's readers,
+/// so that case stays split.
+/// Object-class name of a TypeRef without the JavaType clone `erased()`
+/// performs (Array chains deep-clone) — the split-join candidate filter
+/// ran two clones per candidate per diverged If and the clones dominated
+/// the LUB change's wall cost.
+/// Marker for a ref-pair candidate whose LUB is resolved lazily (after
+/// the write-only read-gate); the empty string never collides with a real
+/// internal class name (they always contain at least one '/').
+fn lub_pending() -> Option<String> {
+    Some(String::new())
+}
+
+/// Resolution of a split-undo candidate after the read-gate.
+enum Undo {
+    /// Rename the gen back onto the base unchanged.
+    Direct,
+    /// Broaden the base var's type to this LUB, then rename.
+    Widen(String),
+    /// No safe merge: leave the branch's gen as-is.
+    Refuse,
+}
+
+fn obj_name(t: &TypeRef) -> Option<&std::sync::Arc<str>> {
+    match t {
+        TypeRef::J(JavaType::Object(o)) => Some(o),
+        _ => None,
+    }
+}
+
+fn pool_lub(a: &str, b: &str, pool: &DexPool) -> Option<String> {
+    if a == b {
+        return Some(a.to_string());
+    }
+    // The hierarchy data is immutable for the process lifetime; the two
+    // full walks (ancestor set of `a` + BFS of `b`) with per-node String
+    // allocations ran per diverged-If candidate and quadrupled wall time
+    // on the big corpora (weixin 19s -> 75s) — a thread-local memo makes
+    // the second call a hash hit.
+    thread_local! {
+        static MEMO: std::cell::RefCell<jdc_core::FxHashMap<(String, String), Option<String>>> =
+            std::cell::RefCell::new(jdc_core::FxHashMap::default());
+    }
+    if let Some(hit) = MEMO.with(|m| m.borrow().get(&(a.to_string(), b.to_string())).cloned()) {
+        return hit;
+    }
+    let r = pool_lub_uncached(a, b, pool);
+    MEMO.with(|m| m.borrow_mut().insert((a.to_string(), b.to_string()), r.clone()));
+    r
+}
+
+fn pool_lub_uncached(a: &str, b: &str, pool: &DexPool) -> Option<String> {
+    let mut anc: jdc_core::FxHashSet<String> = jdc_core::FxHashSet::default();
+    let mut stack: Vec<String> = vec![a.to_string()];
+    while let Some(c) = stack.pop() {
+        if !anc.insert(c.clone()) {
+            continue;
+        }
+        if anc.len() > 1024 {
+            return None;
+        }
+        if let Some(cls) = pool.get(&c) {
+            if let Some(s) = &cls.super_name {
+                stack.push(s.clone());
+            }
+            for i in &cls.interfaces {
+                stack.push(i.clone());
+            }
+        } else {
+            if let Some(s) = crate::fwdb::super_of(&c) {
+                stack.push(s.to_string());
+            }
+            crate::fwdb::for_each_interface(&c, |i| stack.push(i.to_string()));
+        }
+    }
+    let mut seen: jdc_core::FxHashSet<String> = jdc_core::FxHashSet::default();
+    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    queue.push_back(b.to_string());
+    while let Some(c) = queue.pop_front() {
+        if !seen.insert(c.clone()) {
+            continue;
+        }
+        if c != "java/lang/Object" && anc.contains(&c) {
+            return Some(c);
+        }
+        if seen.len() > 1024 {
+            return None;
+        }
+        if let Some(cls) = pool.get(&c) {
+            for i in &cls.interfaces {
+                queue.push_back(i.clone());
+            }
+            if let Some(s) = &cls.super_name {
+                queue.push_back(s.clone());
+            }
+        } else {
+            crate::fwdb::for_each_interface(&c, |i| queue.push_back(i.to_string()));
+            if let Some(s) = crate::fwdb::super_of(&c) {
+                queue.push_back(s.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn undo_type_safe(vt: &VarTable, k: u32, v: u32) -> bool {
     if (k as usize) >= vt.vars.len() || (v as usize) >= vt.vars.len() {
         return false;
@@ -11651,18 +11771,41 @@ fn split_walk_stmt(
             // together with the split walk it was ~1/3 of worker CPU on
             // the QQ sample profile). The map was only ever consulted
             // as `reads(v) == 0` for these candidates.
-            let mut undo_then: Vec<(u32, u32)> = g_then
+            // Candidates carry an optional base widening: a REF pair the
+            // strict type gate refuses can still merge when the pool
+            // knows a common supertype (LinkedList + d96.p0 join to
+            // java.util.List). The base widens to that LUB first, so
+            // both branch writes and the confluence reads compile on
+            // ONE var — the alternative (leaving the branch's gen) is
+            // an undeclared write-only orphan and the branch value is
+            // silently lost (weixin tp2/u2: the null fallback
+            // `p03x = d96.p0.d` never reached addAll).
+            // Stage the undo: cheap classification first, the
+            // write-only read-gate second, and the pool LUB walks LAST —
+            // only for survivors. Computing the LUB inside the filter ran
+            // hierarchy walks for candidates the read-gate then dropped
+            // (+40% wall on weixin).
+            let mut undo_then: Vec<(u32, u32, Option<String>)> = g_then
                 .iter()
                 .filter(|(&k, &v)| {
                     v >= then_floor
                         && v < else_floor
                         && g_else.get(&k).copied() == gen.get(&k).copied()
-                        && undo_type_safe(vt, k, v)
                 })
-                .map(|(&k, &v)| (v, k))
+                .filter_map(|(&k, &v)| {
+                    if undo_type_safe(vt, k, v) {
+                        Some((v, k, None))
+                    } else if let (Some(_), Some(_)) =
+                        (obj_name(&vt.vars[k as usize].ty), obj_name(&vt.vars[v as usize].ty))
+                    {
+                        Some((v, k, lub_pending()))
+                    } else {
+                        None
+                    }
+                })
                 .collect();
             if else_floor > then_floor && !undo_then.is_empty() {
-                let vars: Vec<u32> = undo_then.iter().map(|&(v, _)| v).collect();
+                let vars: Vec<u32> = undo_then.iter().map(|&(v, _, _)| v).collect();
                 let mut hits = vec![false; vars.len()];
                 mark_read_vars(std::slice::from_ref(&**then_stmt), &vars, &mut hits);
                 let mut i = 0usize;
@@ -11672,23 +11815,67 @@ fn split_walk_stmt(
                     keep
                 });
             }
-            undo_then.sort_unstable_by_key(|&(v, _)| std::cmp::Reverse(v));
-            for &(v, k) in &undo_then {
-                rename_gen_back(then_stmt, v, k, vt);
+            undo_then.sort_unstable_by_key(|&(v, _, _)| std::cmp::Reverse(v));
+            // Resolve the widenings (only for read-gate survivors), apply
+            // them to the base types, then ONE batched subtree rewrite.
+            let mut pairs: Vec<(u32, u32)> = Vec::with_capacity(undo_then.len());
+            for (v, k, pending) in undo_then {
+                // Three-way resolution: Direct (types match, the primitive
+                // family, or the gen value is assignable to the base)
+                // renames as-is; Widen (a pool LUB exists) broadens the
+                // base type first; Refused (no common supertype) SKIPS —
+                // merging that pair would forge a cross-class assignment.
+                let kind = match pending {
+                    None => Undo::Direct,
+                    Some(_) => {
+                        let (a, b) = (
+                            obj_name(&vt.vars[k as usize].ty),
+                            obj_name(&vt.vars[v as usize].ty),
+                        );
+                        match (a, b) {
+                            (Some(a), Some(b)) if pool.is_subtype(b, a) => Undo::Direct,
+                            (Some(a), Some(b)) => match pool_lub(a, b, pool) {
+                                Some(lub) => Undo::Widen(lub),
+                                None => Undo::Refuse,
+                            },
+                            _ => Undo::Refuse,
+                        }
+                    }
+                };
+                match kind {
+                    Undo::Refuse => continue,
+                    Undo::Direct => pairs.push((v, k)),
+                    Undo::Widen(lub) => {
+                        WIDEN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        vt.vars[k as usize].ty = TypeRef::J(JavaType::Object(lub.as_str().into()));
+                        pairs.push((v, k));
+                    }
+                }
+            }
+            rename_gen_back_batch(then_stmt, &pairs, vt);
+            for &(v, _) in &pairs {
                 drop_gen_slot(vt, v);
             }
             if let Some(e) = else_stmt.as_deref_mut() {
-                let mut undo_else: Vec<(u32, u32)> = g_else
+                let mut undo_else: Vec<(u32, u32, Option<String>)> = g_else
                     .iter()
                     .filter(|(&k, &v)| {
-                        v >= else_floor
-                            && g_then.get(&k).copied() == gen.get(&k).copied()
-                            && undo_type_safe(vt, k, v)
+                        v >= else_floor && g_then.get(&k).copied() == gen.get(&k).copied()
                     })
-                    .map(|(&k, &v)| (v, k))
+                    .filter_map(|(&k, &v)| {
+                        if undo_type_safe(vt, k, v) {
+                            Some((v, k, None))
+                        } else if let (Some(_), Some(_)) =
+                            (obj_name(&vt.vars[k as usize].ty), obj_name(&vt.vars[v as usize].ty))
+                        {
+                            Some((v, k, lub_pending()))
+                        } else {
+                            None
+                        }
+                    })
                     .collect();
                 if (vt.vars.len() as u32) > else_floor && !undo_else.is_empty() {
-                    let vars: Vec<u32> = undo_else.iter().map(|&(v, _)| v).collect();
+                    let vars: Vec<u32> = undo_else.iter().map(|&(v, _, _)| v).collect();
                     let mut hits = vec![false; vars.len()];
                     mark_read_vars(std::slice::from_ref(&*e), &vars, &mut hits);
                     let mut i = 0usize;
@@ -11698,9 +11885,38 @@ fn split_walk_stmt(
                         keep
                     });
                 }
-                undo_else.sort_unstable_by_key(|&(v, _)| std::cmp::Reverse(v));
-                for &(v, k) in &undo_else {
-                    rename_gen_back(e, v, k, vt);
+                undo_else.sort_unstable_by_key(|&(v, _, _)| std::cmp::Reverse(v));
+                let mut pairs: Vec<(u32, u32)> = Vec::with_capacity(undo_else.len());
+                for (v, k, pending) in undo_else {
+                    let kind = match pending {
+                        None => Undo::Direct,
+                        Some(_) => {
+                            let (a, b) = (
+                                obj_name(&vt.vars[k as usize].ty),
+                                obj_name(&vt.vars[v as usize].ty),
+                            );
+                            match (a, b) {
+                                (Some(a), Some(b)) if pool.is_subtype(b, a) => Undo::Direct,
+                                (Some(a), Some(b)) => match pool_lub(a, b, pool) {
+                                    Some(lub) => Undo::Widen(lub),
+                                    None => Undo::Refuse,
+                                },
+                                _ => Undo::Refuse,
+                            }
+                        }
+                    };
+                    match kind {
+                        Undo::Refuse => continue,
+                        Undo::Direct => pairs.push((v, k)),
+                        Undo::Widen(lub) => {
+                            WIDEN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            vt.vars[k as usize].ty = TypeRef::J(JavaType::Object(lub.as_str().into()));
+                            pairs.push((v, k));
+                        }
+                    }
+                }
+                rename_gen_back_batch(e, &pairs, vt);
+                for &(v, _) in &pairs {
                     drop_gen_slot(vt, v);
                 }
             }
