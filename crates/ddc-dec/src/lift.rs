@@ -800,10 +800,21 @@ impl<'a> Lifter<'a> {
 
     /// Emit `v = expr` and mark the register `Live(v)`.
     fn materialize(&mut self, r: u16) -> u32 {
-        let cur = self.regs.get(r as usize).cloned().unwrap_or(Reg::Undef);
+        // TAKE the slot's expression (single consumer: this materialization
+        // replaces the register with Live(v)) — the old `.cloned()` deep-
+        // cloned the whole pending Expr and then dropped the original.
+        let cur = std::mem::replace(
+            self.regs.get_mut(r as usize).unwrap_or(&mut Reg::Undef),
+            Reg::Undef,
+        );
         let e = match cur {
             Reg::Pending(e) | Reg::PendingCall(e) => e,
-            Reg::Live(v) => return v,
+            Reg::Live(v) => {
+                if (r as usize) < self.regs.len() {
+                    self.regs[r as usize] = Reg::Live(v);
+                }
+                return v;
+            }
             // Undef (a value flowing in from an unanalyzed path): a fresh
             // local, NOT Const 0 — `0.new a()` was not even valid Java.
             _ => {
@@ -821,7 +832,7 @@ impl<'a> Lifter<'a> {
             }
         };
         // cmp sentinels stored as values become library compare calls.
-        let e = value_of_cmp(&e);
+        let e = value_of_cmp_owned(e);
         let ty = e.type_ref();
         // fresh_var is type-keyed: a retyped register gets a FRESH var,
         // so no in-place retyping here (each var keeps its mint type and
@@ -2170,7 +2181,16 @@ fn null_in_obj_ctx(mut v: Expr, ctx_ty: &JavaType) -> Expr {
 
 /// Turn a stored cmp sentinel into a `Long.compare`-style call.
 fn value_of_cmp(e: &Expr) -> Expr {
-    if let Expr::Invokedynamic { name, args, .. } = e {
+    value_of_cmp_owned(e.clone())
+}
+
+/// By-value form: single-consumer call sites (materialize) pass the owned
+/// expression and skip the clone the shared `&Expr` form pays on the
+/// non-sentinel fast path.
+fn value_of_cmp_owned(e: Expr) -> Expr {
+    // Borrow first; only rebuild when the sentinel shape matches (the
+    // non-sentinel fast path returns the original with zero clones).
+    if let Expr::Invokedynamic { name, args, .. } = &e {
         if name.starts_with('\0') && args.len() == 2 {
             let (cls, ty) = match name.as_str() {
                 "\0cmp-long" => ("java/lang/Long", JavaType::Long),
@@ -2196,7 +2216,7 @@ fn value_of_cmp(e: &Expr) -> Expr {
             };
         }
     }
-    e.clone()
+    e
 }
 
 pub fn primitive_type(c: char) -> JavaType {
