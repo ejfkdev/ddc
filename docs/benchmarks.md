@@ -16,13 +16,13 @@ RSS via `/usr/bin/time -l`:
 
 | APK | Size | Full decompile | Peak RSS |
 |---|---|---|---|
-| reqable | 34 MB | **0.25s** | 139 MB |
-| Telegram | 62 MB | **5.64s** | 1479 MB |
-| WhatsApp | 139 MB | **5.87s** (99,277 files — case-variant class pairs all preserved) | 1116 MB |
-| weibo | 226 MB | **5.03s** | 1172 MB |
-| weixin | 268 MB | **11.61s** | 1339 MB |
-| lark | 398 MB | **5.52s** | 1831 MB |
-| qq | 374 MB | **15.92s** | 2459 MB |
+| reqable | 34 MB | **0.57s** | 162 MB |
+| Telegram | 62 MB | **4.50s** | 786 MB |
+| WhatsApp | 139 MB | **29.8s** (99,277 files — case-variant class pairs all preserved) | 970 MB |
+| weibo | 226 MB | **13.5s** | 1173 MB |
+| weixin | 268 MB | **32.7s** | 1401 MB |
+| lark | 398 MB | **16.1s** | 2226 MB |
+| qq | 374 MB | **37.1s** | 2268 MB |
 
 **Compile validation — read the scope before quoting this number**:
 every `.java` of all seven APKs (909,689 files) passes `javac`'s parse

@@ -11,8 +11,8 @@
 
 ## 特性
 
-- **快** —— 226MB/20 dex 的 weibo（9.8 万个类）全量反编译 **5.0s**，
-  398MB 的飞书 **5.5s**；病态类跑在带截止期的受控线程上，不会拖死
+- **快** —— 226MB/20 dex 的 weibo（9.8 万个类）全量反编译 **~13s**（高质量模式），
+  62MB 的 Telegram **~4.5s**；病态类跑在带截止期的受控线程上，不会拖死
   整个运行。
 - **能编译** —— 七个基准 APK（reqable/Telegram/WhatsApp/weibo/weixin/
   qq/lark，共 91 万文件）的输出全部通过 javac，**零语法错误**；
@@ -105,13 +105,13 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 
 | APK | 大小 | 全量反编译 | 峰值 RSS |
 |---|---|---|---|
-| reqable | 34 MB | **0.25s** | 139 MB |
-| Telegram | 62 MB | **5.64s** | 1479 MB |
-| WhatsApp | 139 MB | **5.87s** (99,277 个文件——大小写变体类对全部保留) | 1116 MB |
-| weibo | 226 MB | **5.03s** | 1172 MB |
-| weixin | 268 MB | **11.61s** | 1339 MB |
-| lark | 398 MB | **5.52s** | 1831 MB |
-| qq | 374 MB | **15.92s** | 2459 MB |
+| reqable | 34 MB | **0.57s** | 162 MB |
+| Telegram | 62 MB | **4.50s** | 786 MB |
+| WhatsApp | 139 MB | **29.8s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
+| weibo | 226 MB | **13.5s** | 1173 MB |
+| weixin | 268 MB | **32.7s** | 1401 MB |
+| lark | 398 MB | **16.1s** | 2226 MB |
+| qq | 374 MB | **37.1s** | 2268 MB |
 
 </details>
 
@@ -162,7 +162,7 @@ pattern-switch 呈现为反糖分发链。上述 javac 门控是**语法**门—
 ## 测试
 
 ```bash
-cargo test    # 56 个测试
+cargo test    # 74 个测试
 ```
 
 ## 许可

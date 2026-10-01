@@ -9,13 +9,13 @@
 
 | APK | 大小 | 全量反编译 | 峰值 RSS |
 |---|---|---|---|
-| reqable | 34 MB | **0.25s** | 139 MB |
-| Telegram | 62 MB | **5.64s** | 1479 MB |
-| WhatsApp | 139 MB | **5.87s** (99,277 个文件——大小写变体类对全部保留) | 1116 MB |
-| weibo | 226 MB | **5.03s** | 1172 MB |
-| weixin | 268 MB | **11.61s** | 1339 MB |
-| lark | 398 MB | **5.52s** | 1831 MB |
-| qq | 374 MB | **15.92s** | 2459 MB |
+| reqable | 34 MB | **0.57s** | 162 MB |
+| Telegram | 62 MB | **4.50s** | 786 MB |
+| WhatsApp | 139 MB | **29.8s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
+| weibo | 226 MB | **13.5s** | 1173 MB |
+| weixin | 268 MB | **32.7s** | 1401 MB |
+| lark | 398 MB | **16.1s** | 2226 MB |
+| qq | 374 MB | **37.1s** | 2268 MB |
 
 **编译验证——引用这个数字前请先读口径**：七个 APK 的全部 `.java`（共
 909,689 个文件）过 `javac` 解析闸门（`-XDshould-stop.ifNoError=PARSE

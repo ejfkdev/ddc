@@ -59,7 +59,7 @@ fn print_help_en() {
     println!();
     println!("Decompiles Android DEX images (versions 035-041, multi-dex APKs,");
     println!("XAPK/APKS/APKM containers, invoke-custom) back into readable Java —");
-    println!("fast enough for real-world app bundles (98k classes in ~5s) and");
+    println!("fast enough for real-world app bundles (98k classes in ~13s) and");
     println!("queryable like a database through the subcommands below.");
     println!();
     println!("Usage: ddc [OPTIONS] <INPUT>... [OUTPUT]     # full decompile");
