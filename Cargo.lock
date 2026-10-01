@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "ddc-dex"
-version = "0.2.4"
+version = "0.2.5"
 
 [[package]]
 name = "find-msvc-tools"

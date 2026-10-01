@@ -3,7 +3,7 @@ name = "ddc-dex"
 # 0.2.0: breaking vs 0.1.0 — proto_params returns &[u32] (precomputed
 # per-proto parameter lists) and the string table is Arc<str> with
 # string_arc()/proto_desc() accessors.
-version = "0.2.4"
+version = "0.2.5"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

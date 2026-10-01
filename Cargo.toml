@@ -13,7 +13,7 @@ keywords = ["decompiler", "dex", "dalvik", "android", "reverse-engineering"]
 categories = ["command-line-utilities", "development-tools::debugging"]
 
 [workspace.dependencies]
-ddc-dex = { path = "crates/ddc-dex", version = "0.2.4" }
+ddc-dex = { path = "crates/ddc-dex", version = "0.2.5" }
 ddc-dec = { path = "crates/ddc-dec", version = "0.1.22" }
 jdc-core = "0.2.14"
 anyhow = "1"
