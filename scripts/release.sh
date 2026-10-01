@@ -43,6 +43,18 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "worktree is dirty — commit first" >&2
   exit 1
 fi
+# PRE-TEST lock guard: tests+clippy compile against the CURRENT lock
+# (before stamping regenerates it) — a stale jdc-core pin fails there
+# with trait/method-missing errors instead of this clean message
+# (v0.1.22 first run: the pin was 0.2.13-registry with the trait hooks
+# in 0.2.14). The post-stamp check below covers the stamping step.
+jdc_req0=$(grep -m1 '^jdc-core = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+jdc_got0=$(grep -A1 'name = "jdc-core"' Cargo.lock | grep -m1 version | sed 's/.*"\(.*\)".*/\1/')
+if [[ $(printf '%s\n' "$jdc_req0" "$jdc_got0" | sort -V | head -1) != "$jdc_req0" ]]; then
+  echo "Cargo.lock resolves jdc-core $jdc_got0 < required $jdc_req0 — run cargo update -p jdc-core BEFORE releasing" >&2
+  exit 1
+fi
+echo "==> jdc-core lock pre-check: $jdc_got0 >= $jdc_req0"
 echo "==> tests + clippy"
 cargo test --release --quiet
 cargo clippy --release --all-targets --quiet
