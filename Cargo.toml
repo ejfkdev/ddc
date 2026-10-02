@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/ddc-dex", "crates/ddc-dec", "crates/ddc-cli"]
 
 [workspace.package]
-version = "0.1.22"
+version = "0.1.23"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/ejfkdev/ddc"
@@ -14,7 +14,7 @@ categories = ["command-line-utilities", "development-tools::debugging"]
 
 [workspace.dependencies]
 ddc-dex = { path = "crates/ddc-dex", version = "0.2.5" }
-ddc-dec = { path = "crates/ddc-dec", version = "0.1.22" }
+ddc-dec = { path = "crates/ddc-dec", version = "0.1.23" }
 jdc-core = "0.2.14"
 anyhow = "1"
 
