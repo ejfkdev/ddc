@@ -94,7 +94,7 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 
 ## 性能
 
-七个真实 APK，release 构建，3 连测取平均（Apple Silicon 6P+12E）。
+七个真实 APK，release 构建，冷机后实测（Apple Silicon 6P+12E）。
 39 个 APK 的验证语料（408 万个反编译文件，每个 APK 的墙钟 /
 峰值 RSS / javac 解析门）见
 [docs/zh-CN/validation.md](docs/zh-CN/validation.md)
@@ -107,7 +107,7 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 |---|---|---|---|
 | reqable | 34 MB | **0.57s** | 162 MB |
 | Telegram | 62 MB | **4.50s** | 786 MB |
-| WhatsApp | 139 MB | **29.8s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
+| WhatsApp | 139 MB | **13.6s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
 | weibo | 226 MB | **13.5s** | 1173 MB |
 | weixin | 268 MB | **32.7s** | 1401 MB |
 | lark | 398 MB | **16.1s** | 2226 MB |
@@ -157,7 +157,10 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 R8 巨兽方法超时降级（个别被墙钟截止截断的类输出可能随运行浮动）；
 pattern-switch 呈现为反糖分发链。上述 javac 门控是**语法**门——语义级
 诊断（缺 Android classpath、极少数寄存器密集巨兽方法中的类型混淆局部
-变量）仍会存在。详见[架构文档](docs/zh-CN/architecture.md)。
+变量）仍会存在。量级参考：带完整 Android classpath 的 javac 电池在四
+语料上当前约 7,500 个 ddc 侧错误 / 91 万文件（v0.1.19 时为 11,345，
+见[基准文档](docs/zh-CN/benchmarks.md)）；jadx 同电池约为其一半，差距
+集中在类型恢复。详见[架构文档](docs/zh-CN/architecture.md)。
 
 ## 测试
 

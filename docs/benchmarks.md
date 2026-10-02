@@ -3,22 +3,22 @@
 [English] | [简体中文](zh-CN/benchmarks.md)
 
 All numbers from the author's machine (Apple Silicon, 6P+12E cores),
-3-run averages, release profile with `target-cpu=native`. The benchmark
-harness is kept out of the published tree (local APK paths); the tables
+measured after a cooldown, release profile with
+`target-cpu=native`. The benchmark harness is kept out of the published tree (local APK paths); the tables
 above are the recorded results.
 
 ## Full decompile
 
 Seven real-world APKs — reqable 3.2.23 (34MB), Telegram (62MB), WhatsApp
 (139MB), weibo 16.9.1 (226MB, 20 dex), weixin 8.0.78 (268MB), lark 8.0.2
-(398MB, 59 dex), qq 9.3.65 (374MB) — 3-run averages of wall time, peak
-RSS via `/usr/bin/time -l`:
+(398MB, 59 dex), qq 9.3.65 (374MB) — wall time, peak RSS via `/usr/bin/time -l`,
+measured after a cooldown:
 
 | APK | Size | Full decompile | Peak RSS |
 |---|---|---|---|
 | reqable | 34 MB | **0.57s** | 162 MB |
 | Telegram | 62 MB | **4.50s** | 786 MB |
-| WhatsApp | 139 MB | **29.8s** (99,277 files — case-variant class pairs all preserved) | 970 MB |
+| WhatsApp | 139 MB | **13.6s** (99,277 files — case-variant class pairs all preserved) | 970 MB |
 | weibo | 226 MB | **13.5s** | 1173 MB |
 | weixin | 268 MB | **32.7s** | 1401 MB |
 | lark | 398 MB | **16.1s** | 2226 MB |
@@ -29,16 +29,23 @@ every `.java` of all seven APKs (909,689 files) passes `javac`'s parse
 gate (`-XDshould-stop.ifNoError=PARSE -XDshould-stop.ifError=PARSE`)
 with **zero syntax errors**. That gate stops at the parser: it does NOT
 type-check, resolve symbols, or guarantee the output compiles against a
-classpath. Semantic quality (type recovery, cross-references) trails
-jadx — see "Known limitations" in the README. Symbol/typing error
-counts under full `javac` compilation are tracked separately and have
-been the driver of the post-0.1.4 fix rounds (duplicate declarations:
-lark 22,316 → 14, weibo 14,871 → 3, null-into-local `str = 0` family
-root-caused and fixed in 0.1.6).
+classpath.
+
+**Semantic quality is measured separately — a javac battery with the
+full Android classpath** (android-37 jar + optional libraries) over four
+corpora, counting ddc-attributable diagnostics. That battery is the
+driver of the post-0.1.4 fix rounds and has gone **11,345 → 7,452
+errors (−34%) from v0.1.19 to v0.1.22**, including a multi-handler
+exception-routing bug present since the first release (every catch of a
+multi-handler method ran the first handler's code — invisible to any
+parse gate) and three javac-blind value-loss defects found by reading
+the output against the disassembly. Semantic quality still trails jadx
+on type recovery (erased generics, register-typed locals in R8 monster
+methods) — see "Known limitations" in the README.
 
 ## Every query subcommand, same seven APKs
 
-3-run averages; cells are wall time / peak RSS. Query targets:
+Measured after a cooldown; cells are wall time / peak RSS. Query targets:
 `strings -f <package> --with-locations`; `findrefs string <package>`;
 `findrefs method onCreate`; `hierarchy`/`disasm`/`getclass` use each
 app's launcher class (Telegram's `LaunchActivity` is an exceptionally
@@ -62,7 +69,7 @@ large class):
 
 ## Methodology notes
 
-- **Serial, 3-round medians.** Same-machine variance reaches ±25% (E-core
+- **Serial runs after a cooldown.** Same-machine variance reaches ±25% (E-core
   scheduling + memory bandwidth contention); a single run proves nothing.
 - **`/usr/bin/time`'s user time includes all threads** — a "busy" worker
   is not CPU (write-back-pressured threads tick wall time without cycles).

@@ -101,8 +101,8 @@ subcommand's output format and behavior — lives in
 
 ## Performance
 
-Seven real-world APKs, release build, 3-run averages
-(Apple Silicon, 6P+12E). The 39-APK validation corpus (4.08M
+Seven real-world APKs, release build, measured after a
+cooldown (Apple Silicon, 6P+12E). The 39-APK validation corpus (4.08M
 decompiled files, per-APK wall time / peak RSS / javac parse gate) is
 in [docs/validation.md](docs/validation.md)
 ([中文](docs/zh-CN/validation.md)).
@@ -114,7 +114,7 @@ in [docs/validation.md](docs/validation.md)
 |---|---|---|---|
 | reqable | 34 MB | **0.57s** | 162 MB |
 | Telegram | 62 MB | **4.50s** | 786 MB |
-| WhatsApp | 139 MB | **29.8s** (99,277 files — case-variant class pairs all preserved) | 970 MB |
+| WhatsApp | 139 MB | **13.6s** (99,277 files — case-variant class pairs all preserved) | 970 MB |
 | weibo | 226 MB | **13.5s** | 1173 MB |
 | weixin | 268 MB | **32.7s** | 1401 MB |
 | lark | 398 MB | **16.1s** | 2226 MB |
@@ -167,7 +167,11 @@ a handful of deadline-truncated ones can vary between runs);
 pattern-switch renders as desugared dispatch chains. The javac gate
 above is a SYNTAX gate — semantic diagnostics (missing Android
 classpath, and in rare register-heavy monster methods a type-confused
-local) remain in the output. Details:
+local) remain in the output. For scale: a full-classpath javac battery
+over four corpora currently sits at ~7,500 ddc-attributable errors
+across 0.91M files (v0.1.19 measured 11,345 — see
+[benchmarks](docs/benchmarks.md)); jadx on the same battery lands at
+roughly half that, the gap concentrated in type recovery. Details:
 [architecture](docs/architecture.md).
 
 ## Testing

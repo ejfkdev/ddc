@@ -4,14 +4,14 @@
 
 七个真实 APK —— reqable 3.2.23（34MB）、Telegram（62MB）、WhatsApp
 （139MB）、weibo 16.9.1（226MB、20 dex）、weixin 8.0.78（268MB）、
-飞书 8.0.2（398MB、59 dex）、qq 9.3.65（374MB）—— 墙钟时间 3 连测取
-平均，峰值 RSS 来自 `/usr/bin/time -l`：
+飞书 8.0.2（398MB、59 dex）、qq 9.3.65（374MB）—— 墙钟时间冷机
+后实测，峰值 RSS 来自 `/usr/bin/time -l`：
 
 | APK | 大小 | 全量反编译 | 峰值 RSS |
 |---|---|---|---|
 | reqable | 34 MB | **0.57s** | 162 MB |
 | Telegram | 62 MB | **4.50s** | 786 MB |
-| WhatsApp | 139 MB | **29.8s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
+| WhatsApp | 139 MB | **13.6s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
 | weibo | 226 MB | **13.5s** | 1173 MB |
 | weixin | 268 MB | **32.7s** | 1401 MB |
 | lark | 398 MB | **16.1s** | 2226 MB |
@@ -20,15 +20,20 @@
 **编译验证——引用这个数字前请先读口径**：七个 APK 的全部 `.java`（共
 909,689 个文件）过 `javac` 解析闸门（`-XDshould-stop.ifNoError=PARSE
 -XDshould-stop.ifError=PARSE`）——**语法错误为零**。该闸门只到解析器为止：
-**不做类型检查、不做符号解析、不保证挂 classpath 后能编译通过**。语义质量
-（类型恢复、交叉引用）目前落后于 jadx——见 README「已知限制」。全量 `javac`
-编译口径下的符号/类型错误数另行统计，正是 0.1.4 之后多轮修复的驱动力
-（重复声明类错误：lark 22,316→14、weibo 14,871→3；null 落局部的
-`str = 0` 错误家族已在 0.1.6 根治）。
+**不做类型检查、不做符号解析、不保证挂 classpath 后能编译通过**。
+
+**语义质量另有独立度量——带完整 Android classpath（android-37 jar +
+可选库）的 javac 电池**，覆盖四个语料，只计 ddc 侧可归因诊断。该电池
+是 0.1.4 之后多轮修复的驱动力，**v0.1.19 → v0.1.22 从 11,345 降到
+7,452（−34%）**——其中包括一个自首个版本就存在的多 handler 异常路由
+bug（多 handler 方法的所有 catch 全部执行第一个 handler 的代码——任何
+解析闸门都不可见）、以及三个靠逐行读输出对照反汇编才发现的 javac 不可
+见值丢失缺陷。语义质量在类型恢复上仍落后 jadx（擦除泛型、R8 巨兽方法
+的寄存器类型局部）——见 README「已知限制」。
 
 ## 同一批 APK 上的全部查询子命令
 
-3 连测取平均；单元格为 墙钟 / 峰值 RSS。查询内容：`strings -f <包名>
+冷机后实测；单元格为 墙钟 / 峰值 RSS。查询内容：`strings -f <包名>
 --with-locations`；`findrefs string <包名>`；`findrefs method onCreate`；
 `hierarchy`/`disasm`/`getclass` 用各 App 的启动类（Telegram 的
 `LaunchActivity` 是特别大的类）：
@@ -49,6 +54,6 @@
 | `disasm` | 0.04s / 23MB | 0.07s / 88MB | 0.09s / 214MB | 0.12s / 371MB | 0.13s / 392MB | 0.16s / 422MB | 0.20s / 533MB |
 | `getclass` | 0.05s / 34MB | 0.28s / 182MB | 0.14s / 357MB | 0.33s / 740MB | 0.37s / 942MB | 0.50s / 1235MB | 0.76s / 1651MB |
 
-测量方法论（3 连测、串行纪律、CPU 计量陷阱）见
+测量方法论（冷机实测、串行纪律、CPU 计量陷阱）见
 [英文版](../benchmarks.md) 的 Methodology notes 与
 [性能工程](optimization.md)。
