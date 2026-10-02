@@ -251,7 +251,8 @@ pub struct DexPool {
     /// never retire and fall through to live reads.
     accessor_code: std::sync::OnceLock<AccessorSnapshots>,
     /// Cached package → direct-class simple names (import-collision gate).
-    pkg_simples: std::sync::OnceLock<jdc_core::FxHashMap<String, jdc_core::FxHashSet<String>>>,
+    pkg_simples:
+        std::sync::OnceLock<jdc_core::FxHashMap<String, std::sync::Arc<jdc_core::FxHashSet<String>>>>,
     /// First path segments of all packages (`v2` for `v2/n`): local or
     /// field names equal to one capture package-qualified renders
     /// (`v2.n.a`) — deshadow_locals consults this.
@@ -625,17 +626,26 @@ impl DexPool {
     /// Package → simple names of its direct classes, cached once per
     /// pool (the import-collision gate consults it per class — the
     /// uncached scan was O(classes²) and 10×'d weixin's wall time).
-    pub fn package_simples(&self) -> &jdc_core::FxHashMap<String, jdc_core::FxHashSet<String>> {
+    pub fn package_simples(
+        &self,
+    ) -> &jdc_core::FxHashMap<String, std::sync::Arc<jdc_core::FxHashSet<String>>> {
+        // Arc'd sets: the per-file import machinery BORROWS a package's
+        // set (an Arc clone) instead of deep-copying it — WhatsApp's
+        // ~10k-class package paid two full copies per class (~200M
+        // String allocations), the #2/#3 CPU frames on its profile.
         self.pkg_simples.get_or_init(|| {
-            let mut m: jdc_core::FxHashMap<String, jdc_core::FxHashSet<String>> =
+            let mut m: jdc_core::FxHashMap<String, std::sync::Arc<jdc_core::FxHashSet<String>>> =
+                jdc_core::FxHashMap::default();
+            let mut raw: jdc_core::FxHashMap<String, jdc_core::FxHashSet<String>> =
                 jdc_core::FxHashMap::default();
             for n in &self.order {
                 if let Some((pkg, simple)) = n.rsplit_once('/') {
-                    m.entry(pkg.to_string())
+                    raw.entry(pkg.to_string())
                         .or_default()
                         .insert(simple.to_string());
                 }
             }
+            m.extend(raw.into_iter().map(|(k, v)| (k, std::sync::Arc::new(v))));
             m
         })
     }

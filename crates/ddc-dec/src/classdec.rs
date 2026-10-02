@@ -167,11 +167,26 @@ fn decompile_class_impl(
     // Same-package simple-name collisions: an import shadows every
     // same-package use of that simple in this file — drop those from
     // the map (their refs stay qualified, erroring honestly).
-    let mut blocked: jdc_core::FxHashSet<String> = pool
+    // Arc BORROW of the package's simple-name set + a small overlay for
+    // this file's own additions ($-tail extras, own field names). The
+    // old unconditional deep copy cost one full set per class —
+    // WhatsApp's ~10k-class package paid it twice (the second in the
+    // obscured-state install), the #2/#3 CPU frames on its profile.
+    static EMPTY_BLOCKED: std::sync::OnceLock<std::sync::Arc<jdc_core::FxHashSet<String>>> =
+        std::sync::OnceLock::new();
+    let blocked_base: std::sync::Arc<jdc_core::FxHashSet<String>> = pool
         .package_simples()
         .get(pkg_lookup)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            std::sync::Arc::clone(EMPTY_BLOCKED.get_or_init(|| {
+                std::sync::Arc::new(jdc_core::FxHashSet::default())
+            }))
+        });
+    // Rare JLS 7.5.1 narrowing: sibling simples the file never
+    // references stop blocking — materialized as a REMOVAL overlay.
+    let mut blocked_removed: jdc_core::FxHashSet<String> = jdc_core::FxHashSet::default();
+    let mut blocked_extra: jdc_core::FxHashSet<String> = jdc_core::FxHashSet::default();
     // JLS 7.5.1 narrowing: importing simple `n` legally shadows the
     // same-package sibling throughout THIS file — it only breaks refs
     // the file itself makes to that sibling. Drop sibling simples the
@@ -190,9 +205,16 @@ fn decompile_class_impl(
         let can_obscure = shadow.iter().any(|f| pool.package_simples().contains_key(f))
             || (!own_simple0.is_empty()
                 && pool.package_simples().contains_key(own_simple0));
-        if can_obscure && !blocked.is_empty() {
+        if can_obscure && !blocked_base.is_empty() {
             let used = sibling_ref_simples(pool, class);
-            blocked.retain(|b| used.contains(b));
+            if !used.is_empty() {
+                blocked_removed.extend(
+                    blocked_base
+                        .iter()
+                        .filter(|b| !used.contains(*b))
+                        .map(|b| b.to_string()),
+                );
+            }
         }
     }
     // Blocked names must include the RENAMED displays of same-package
@@ -240,18 +262,20 @@ fn decompile_class_impl(
     {
         let own_raw = class.name.rsplit('/').next().unwrap_or("");
         let prefix = format!("{}$", own_raw);
-        let extras: Vec<String> = blocked
+        let extras: Vec<String> = blocked_base
             .iter()
             .filter(|b| b.starts_with(&prefix))
             .filter_map(|b| b.rsplit('$').next().map(|t| t.to_string()))
             .collect();
-        blocked.extend(extras);
+        blocked_extra.extend(extras);
         for f in class.static_fields.iter().chain(class.instance_fields.iter()) {
-            blocked.insert(crate::classdec::java_ident(&f.name).into_owned());
+            blocked_extra.insert(crate::classdec::java_ident(&f.name).into_owned());
         }
     }
     obscured_map.retain(|_internal, simple| {
-        !blocked.contains(simple)
+        !blocked_extra.contains(simple)
+            && (blocked_removed.contains(simple)
+                || !blocked_base.contains(simple))
             && !blocked_renamed.is_some_and(|e| e.contains(simple))
     });
     // Display-simple collisions cannot coexist as single-type imports:
@@ -292,7 +316,9 @@ fn decompile_class_impl(
     set_obscured_state(
         class.name.clone(),
         obscured_map.clone(),
-        blocked.clone(),
+        std::sync::Arc::clone(&blocked_base),
+        blocked_removed.clone(),
+        blocked_extra.clone(),
         blocked_renamed,
         shadow,
     );
@@ -324,7 +350,9 @@ fn decompile_class_impl(
                 };
                 let simple = display.rsplit(['/', '$']).next().unwrap_or("");
                 if !simple.is_empty()
-                    && !blocked.contains(simple)
+                    && !blocked_extra.contains(simple)
+                    && (blocked_removed.contains(simple)
+                        || !blocked_base.contains(simple))
                     && !blocked_renamed.is_some_and(|e| e.contains(simple))
                 {
                     import_set.insert(r);
@@ -3737,7 +3765,9 @@ struct ObscureState {
     /// name that collides would SHADOW every same-package use of it in
     /// this file (JLS 7.5.1) — those refs stay qualified (obscured,
     /// erroring) rather than corrupt.
-    blocked: jdc_core::FxHashSet<String>,
+    blocked_base: std::sync::Arc<jdc_core::FxHashSet<String>>,
+    blocked_removed: jdc_core::FxHashSet<String>,
+    blocked_extra: jdc_core::FxHashSet<String>,
     /// RENAMED display tails of same-package classes (zero-copy view
     /// into the process-wide cache): same blocking role as `blocked`
     /// for refs that render under the rename registry.
@@ -3753,7 +3783,9 @@ thread_local! {
 pub(crate) fn set_obscured_state(
     class: String,
     map: jdc_core::FxHashMap<String, String>,
-    blocked: jdc_core::FxHashSet<String>,
+    blocked_base: std::sync::Arc<jdc_core::FxHashSet<String>>,
+    blocked_removed: jdc_core::FxHashSet<String>,
+    blocked_extra: jdc_core::FxHashSet<String>,
     blocked_renamed: Option<&'static jdc_core::FxHashSet<String>>,
     shadow: jdc_core::FxHashSet<String>,
 ) {
@@ -3763,7 +3795,9 @@ pub(crate) fn set_obscured_state(
             shadow,
             map,
             recorded: jdc_core::FxHashSet::default(),
-            blocked,
+            blocked_base,
+            blocked_removed,
+            blocked_extra,
             blocked_renamed,
         });
     });
@@ -4083,7 +4117,9 @@ pub(crate) fn obscured_render_pub(internal: &str) -> Option<String> {
             // rejecting them dropped WhatsApp's whole field-X-shadowed
             // package import layer (cannot-find:变量 ×17k cascade).
             if !simple.is_empty()
-                && !st.blocked.contains(&simple)
+                && !st.blocked_extra.contains(&simple)
+                && (st.blocked_removed.contains(&simple)
+                    || !st.blocked_base.contains(&simple))
                 && !st.blocked_renamed.is_some_and(|e| e.contains(&simple))
             {
                 st.recorded.insert(internal.to_string());
