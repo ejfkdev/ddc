@@ -114,7 +114,7 @@ in [docs/validation.md](docs/validation.md)
 |---|---|---|---|
 | reqable | 34 MB | **0.57s** | 162 MB |
 | Telegram | 62 MB | **4.50s** | 786 MB |
-| WhatsApp | 139 MB | **13.6s** (99,277 files — case-variant class pairs all preserved) | 970 MB |
+| WhatsApp | 139 MB | **13.6s** (99,483 files — case-variant class pairs all preserved) | 944 MB |
 | weibo | 226 MB | **13.5s** | 1173 MB |
 | weixin | 268 MB | **32.7s** | 1401 MB |
 | lark | 398 MB | **16.1s** | 2226 MB |

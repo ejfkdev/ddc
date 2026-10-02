@@ -107,7 +107,7 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 |---|---|---|---|
 | reqable | 34 MB | **0.57s** | 162 MB |
 | Telegram | 62 MB | **4.50s** | 786 MB |
-| WhatsApp | 139 MB | **13.6s** (99,277 个文件——大小写变体类对全部保留) | 970 MB |
+| WhatsApp | 139 MB | **13.6s** (99,483 个文件——大小写变体类对全部保留) | 944 MB |
 | weibo | 226 MB | **13.5s** | 1173 MB |
 | weixin | 268 MB | **32.7s** | 1401 MB |
 | lark | 398 MB | **16.1s** | 2226 MB |
