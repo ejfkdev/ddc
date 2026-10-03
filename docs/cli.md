@@ -22,9 +22,10 @@ language decides — any `zh*` value selects Chinese (`zh`, `zh_CN`,
 `zh-Hans`, `zh_TW.UTF-8`, …), any other language English. `LANGUAGE`
 is a colon-separated priority list (`zh:en`) — the first entry counts.
 `C`, `POSIX` and empty values state no language: the chain keeps
-walking. Detection reads environment variables only (no Win32 locale
-API); under cmd.exe / PowerShell set `DDC_LANG` explicitly — Git Bash,
-Cygwin and WSL export `LANG` and work out of the box.
+walking. With no locale variable set at all — plain cmd.exe and
+PowerShell export none — Windows falls back to the user's UI language
+(the one Windows itself displays); set `DDC_LANG` to pin a language.
+Git Bash, Cygwin and WSL export `LANG` and are covered by the chain.
 
 ```bash
 DDC_LANG=zh ddc --help    # 中文帮助

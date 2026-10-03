@@ -19,8 +19,9 @@ ddc <子命令> [参数...]                  # 渐进式分析（查询）
 个声明了语言的变量 —— 任何 `zh*` 值选中文（`zh`、`zh_CN`、`zh-Hans`、
 `zh_TW.UTF-8`、…），其他语言选英文。`LANGUAGE` 是冒号分隔的优先列表
 （`zh:en`），只取第一项；`C`、`POSIX`、空值不声明语言，继续沿链路查找。
-识别只读环境变量，不调用 Windows API：cmd.exe / PowerShell 下请显式设置
-`DDC_LANG`；Git Bash、Cygwin、WSL 导出 `LANG`，开箱即用。
+环境变量全部缺省时（原生 cmd.exe / PowerShell 不导出任何区域变量），
+Windows 回退到用户界面语言（即 Windows 自身显示所用的语言）；需固定
+语言时设置 `DDC_LANG`。Git Bash、Cygwin、WSL 导出 `LANG`，由链路覆盖。
 
 ```bash
 DDC_LANG=zh ddc --help    # 中文帮助

@@ -1,17 +1,17 @@
 //! Bilingual CLI messages. Chinese when the environment asks for it.
 //!
 //! Resolution: `DDC_LANG` (explicit `zh`/`en` override) > `LC_ALL` >
-//! `LC_MESSAGES` > `LANG` > `LANGUAGE`. A tag selects Chinese when its
-//! primary subtag starts with `zh` (zh, zh_CN, zh-Hans, zh_TW.UTF-8,
-//! …); any other stated language selects English. `LANGUAGE` is a
-//! colon-separated priority list (`zh:en`) — only its first entry
-//! counts. `C`, `POSIX` and empty values state no language: the chain
-//! keeps walking.
+//! `LC_MESSAGES` > `LANG` > `LANGUAGE` > the Windows user's UI language.
+//! A tag selects Chinese when its primary subtag starts with `zh` (zh,
+//! zh_CN, zh-Hans, zh_TW.UTF-8, …); any other stated language selects
+//! English. `LANGUAGE` is a colon-separated priority list (`zh:en`) —
+//! only its first entry counts. `C`, `POSIX` and empty values state no
+//! language: the chain keeps walking.
 //!
-//! Environment variables only — no Win32 locale API. cmd.exe and
-//! PowerShell define no locale variables by default (English fallback);
-//! set `DDC_LANG=zh` there. POSIX-ish Windows environments (Git Bash,
-//! Cygwin, WSL) provide `LANG` and are picked up automatically.
+//! Environment variables always win — the Win32 call runs only when no
+//! variable stated a language, because plain cmd.exe and PowerShell
+//! export no locale variables at all (Git Bash, Cygwin and WSL export
+//! `LANG` and are covered by the chain).
 
 use std::sync::OnceLock;
 
@@ -45,8 +45,35 @@ impl Lang {
                 return if p.starts_with("zh") { Lang::Zh } else { Lang::En };
             }
         }
+        // Nothing in the environment stated a language. Plain cmd.exe /
+        // PowerShell export no locale variables, so they would always
+        // land here — fall back to the Windows user's UI language (the
+        // one Windows itself displays). Env vars, when present, always
+        // outrank this.
+        #[cfg(windows)]
+        {
+            if let Some(l) = windows_ui_lang() {
+                return l;
+            }
+        }
         Lang::En
     }
+}
+
+/// The user's Windows UI language via kernel32. Only Chinese is
+/// distinguished; any other UI language keeps the English default.
+/// `GetUserDefaultUILanguage` lives in kernel32 (always present in the
+/// MSVC link, unlike the getrusage CRT trap of v0.1.18) and returns a
+/// LANGID whose low 10 bits are the primary language — 0x04 covers
+/// every Chinese variant (zh-CN/zh-TW/zh-HK/…).
+#[cfg(windows)]
+fn windows_ui_lang() -> Option<Lang> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    let langid = unsafe { GetUserDefaultUILanguage() };
+    (langid & 0x3ff == 0x04).then_some(Lang::Zh)
 }
 
 /// The primary language subtag of a locale tag, lowercased: `zh_CN.UTF-8`

@@ -406,8 +406,7 @@ fn language_autodetect_and_override() {
 }
 
 #[test]
-fn language_chain_priority_and_neutral_tags() {
-    // LC_ALL outranks LANG (POSIX priority — a stated en wins over zh).
+fn language_chain_priority_and_neutral_tags() {    // LC_ALL outranks LANG (POSIX priority — a stated en wins over zh).
     let o = run(ddc()
         .env_remove("DDC_LANG")
         .env("LC_ALL", "en_US.UTF-8")
@@ -454,4 +453,27 @@ fn language_chain_priority_and_neutral_tags() {
         .env("LANG", "zh_CN.UTF-8")
         .arg("-V"));
     assert!(stdout(&o).contains("反编译器"), "{}", stdout(&o));
+}
+
+/// Windows, no locale variables at all (plain cmd.exe / PowerShell):
+/// the message language follows the user's UI language. The expectation
+/// is derived from the same kernel32 call the binary consults — this
+/// verifies the wiring end to end on whatever locale the runner has.
+#[test]
+#[cfg(windows)]
+fn windows_locale_fallback_matches_ui_language() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetUserDefaultUILanguage() -> u16;
+    }
+    let zh = unsafe { GetUserDefaultUILanguage() } & 0x3ff == 0x04;
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env_remove("LC_ALL")
+        .env_remove("LC_MESSAGES")
+        .env_remove("LANG")
+        .env_remove("LANGUAGE")
+        .arg("-V"));
+    let want = if zh { "反编译器" } else { "decompiler" };
+    assert!(stdout(&o).contains(want), "{}", stdout(&o));
 }

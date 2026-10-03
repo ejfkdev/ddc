@@ -62,8 +62,8 @@ fn print_help_en() {
     println!();
     println!("Language: DDC_LANG=zh|en overrides; otherwise the first of LC_ALL,");
     println!("LC_MESSAGES, LANG, LANGUAGE decides (zh* selects Chinese, any other");
-    println!("language English). Environment variables only — no Win32 locale");
-    println!("API; under cmd.exe/PowerShell set DDC_LANG explicitly.");
+    println!("language English). With no locale variable set — plain cmd.exe /");
+    println!("PowerShell — Windows follows the system UI language.");
     println!();
     println!("Decompiler for Android DEX images: versions 035-041, multi-dex APKs,");
     println!("XAPK/APKS/APKM containers, invoke-custom. Twenty-plus subcommands");
@@ -171,8 +171,8 @@ fn print_help_zh() {
     println!();
     println!("语言：DDC_LANG=zh|en 强制指定；否则按 LC_ALL、LC_MESSAGES、LANG、");
     println!("LANGUAGE 中第一个有值的变量判定（zh* 选中文，其余语言选英文）。");
-    println!("仅读取环境变量，不调用 Windows API；cmd.exe / PowerShell 下请显式");
-    println!("设置 DDC_LANG。");
+    println!("环境变量全部缺省时（原生 cmd.exe / PowerShell 不导出区域变量），");
+    println!("Windows 按系统界面语言判定。");
     println!();
     println!("Android DEX 镜像反编译器：支持版本 035-041、多 dex APK、");
     println!("XAPK/APKS/APKM 容器、invoke-custom。二十余个子命令在不全量反编译的");
