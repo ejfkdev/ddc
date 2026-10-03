@@ -14,13 +14,18 @@ ddc <子命令> [参数...]                  # 渐进式分析（查询）
 
 ## 语言
 
-消息（帮助、错误、摘要、表头）自动本地化：`DDC_LANG`（显式 `zh`/`en`）
-优先于 `LC_ALL` > `LC_MESSAGES` > `LANG`；任何 `zh*` 值选中文，其余回退
-英文。
+消息（帮助、错误、摘要、表头）自动本地化。判定顺序：`DDC_LANG`（显式
+`zh`/`en`）优先于 `LC_ALL` > `LC_MESSAGES` > `LANG` > `LANGUAGE`，取第一
+个声明了语言的变量 —— 任何 `zh*` 值选中文（`zh`、`zh_CN`、`zh-Hans`、
+`zh_TW.UTF-8`、…），其他语言选英文。`LANGUAGE` 是冒号分隔的优先列表
+（`zh:en`），只取第一项；`C`、`POSIX`、空值不声明语言，继续沿链路查找。
+识别只读环境变量，不调用 Windows API：cmd.exe / PowerShell 下请显式设置
+`DDC_LANG`；Git Bash、Cygwin、WSL 导出 `LANG`，开箱即用。
 
 ```bash
 DDC_LANG=zh ddc --help    # 中文帮助
 LANG=zh_CN.UTF-8 ddc -V   # 同样是中文
+LC_ALL=C LANG=zh_CN ddc -V  # C 不声明语言 → LANG 决定 → 中文
 DDC_LANG=en ddc -V        # zh 区域下强制英文
 ```
 
@@ -60,7 +65,9 @@ DDC_LANG=en ddc -V        # zh 区域下强制英文
 | `-h, --help` / `-V, --version` | 帮助 / 名称+版本+主页 |
 
 `--opt=value` 与 `-o=path` 写法均可；裸的 `ddc help` / `ddc version` 与
-`-h` / `-V` 等价。
+`-h` / `-V` 等价；完全不带参数的 `ddc` 直接打印帮助（退出码 0）。
+`ddc help <子命令>` 与 `ddc <子命令> --help` 打印该命令自己的参数与
+选项，而非主帮助。
 
 **出处注释头**（`--no-comments` 关闭）：
 
@@ -75,7 +82,7 @@ DDC_LANG=en ddc -V        # zh 区域下强制英文
 极少数变量编号仍可能因 std HashMap 随机种子而不同（语义等价）。
 
 **退出码**：`0` 成功；`1` 部分类失败（如病态 CFG 超时）；`2` 用法错误
-（先输出错误再输出完整帮助）。运行结束在 stderr 打一行摘要：
+（只输出错误一行，参考信息用 `ddc --help` 获取）。运行结束在 stderr 打一行摘要：
 `ddc: wrote 98348 file(s) to out/, 1 failed in 6.13s`。
 
 ## 渐进式分析子命令
@@ -188,6 +195,6 @@ ddc 开箱即用地把 IntDef/LongDef 字面量实参按常量名渲染
 
 ## 子命令的退出码
 
-用法错误（缺参数、未知选项、`--dex` 传错）先输出错误再输出完整帮助，
-退出 `2`。查询未命中（类/方法/条目找不到）同样是 `2`，但错误里带具体
+用法错误（缺参数、未知选项、`--dex` 传错）只输出错误信息一行，退出
+`2`。查询未命中（类/方法/条目找不到）同样是 `2`，但错误里带具体
 信息 —— `getmethod` 列出可用方法名，`--dex` 列出可用镜像名。

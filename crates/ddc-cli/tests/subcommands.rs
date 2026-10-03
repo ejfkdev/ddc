@@ -281,7 +281,7 @@ fn findrefs_bad_invocation() {
 
     let o = run(ddc().arg("findrefs").arg(fixture()));
     assert_eq!(o.status.code(), Some(2));
-    assert!(stderr(&o).contains("findrefs needs:"));
+    assert!(stderr(&o).contains("findrefs needs <input>"));
 }
 
 // ---- browse subcommands (jadx-style lookup tools) --------------------------

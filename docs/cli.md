@@ -15,13 +15,21 @@ ddc <SUBCOMMAND> [ARGS...]             # progressive analysis (query)
 
 ## Language
 
-Messages (help, errors, summaries, table headers) localize automatically:
-`DDC_LANG` (explicit `zh`/`en`) overrides `LC_ALL` > `LC_MESSAGES` > `LANG`;
-any `zh*` value selects Chinese, everything else falls back to English.
+Messages (help, errors, summaries, table headers) localize automatically.
+Resolution: `DDC_LANG` (explicit `zh`/`en`) overrides `LC_ALL` >
+`LC_MESSAGES` > `LANG` > `LANGUAGE`; the first variable stating a
+language decides — any `zh*` value selects Chinese (`zh`, `zh_CN`,
+`zh-Hans`, `zh_TW.UTF-8`, …), any other language English. `LANGUAGE`
+is a colon-separated priority list (`zh:en`) — the first entry counts.
+`C`, `POSIX` and empty values state no language: the chain keeps
+walking. Detection reads environment variables only (no Win32 locale
+API); under cmd.exe / PowerShell set `DDC_LANG` explicitly — Git Bash,
+Cygwin and WSL export `LANG` and work out of the box.
 
 ```bash
 DDC_LANG=zh ddc --help    # 中文帮助
 LANG=zh_CN.UTF-8 ddc -V   # also Chinese
+LC_ALL=C LANG=zh_CN ddc -V  # C states nothing → LANG decides → Chinese
 DDC_LANG=en ddc -V        # forced English even under a zh locale
 ```
 
@@ -65,7 +73,10 @@ while `ddc a.dex dump/` treats a real dex directory as an input.
 | `-h, --help` / `-V, --version` | help / name+version+homepage |
 
 `--opt=value` and `-o=path` forms both work. Bare `ddc help` / `ddc
-version` do the same as `-h` / `-V`.
+version` do the same as `-h` / `-V`; `ddc` with no arguments at all
+prints the help (exit 0). `ddc help <SUBCOMMAND>` and
+`ddc <SUBCOMMAND> --help` print that command's own arguments and
+options instead of the main help.
 
 **Provenance header** (unless `--no-comments`):
 
@@ -82,15 +93,17 @@ variable IDs may still differ between runs (std HashMap seed), with
 identical semantics.
 
 **Exit codes**: `0` success; `1` some classes failed (e.g. a
-pathological-CFG timeout); `2` usage error (the error, then the full
-help). A one-line summary goes to stderr when a run finishes: `ddc:
+pathological-CFG timeout); `2` usage error (the error message only —
+run `ddc --help` for the reference). A one-line summary goes to stderr when a run finishes: `ddc:
 wrote 98348 file(s) to out/, 1 failed in 6.13s`.
 
 ## Progressive-analysis subcommands
 
-All of them accept `-d/--dex NAME` (repeatable; entry-name substring —
-the filter runs before parsing, so `getclass --dex classes20` parses
-exactly one image) and most accept `-o FILE` to write the result.
+Every dex-reading subcommand accepts `-d/--dex NAME` (repeatable;
+entry-name substring — the filter runs before parsing, so
+`getclass --dex classes20` parses exactly one image); several accept
+`-o FILE` to write the result. `ddc help <SUBCOMMAND>` (or
+`ddc <SUBCOMMAND> --help`) documents each command's own signature.
 Queries never enter the lift/structure/render pipeline; stdout stays
 clean (timing prints only with `-o`).
 
@@ -224,6 +237,6 @@ subcommands alike.
 ## Exit codes for subcommands
 
 Usage errors (missing arguments, unknown options, bad `--dex`) print the
-error plus the full help and exit `2`. Query misses (class/method/entry
+error message only and exit `2`. Query misses (class/method/entry
 not found) are also `2` but carry the specific miss in the error —
 `getmethod` lists the available methods, `--dex` the available images.

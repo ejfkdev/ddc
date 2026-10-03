@@ -1,7 +1,17 @@
-//! Bilingual CLI messages. Chinese when the environment asks for it —
-//! `DDC_LANG` (explicit override) beats `LC_ALL` beats `LC_MESSAGES` beats
-//! `LANG`, any value starting with `zh` (zh, zh_CN, zh_TW...) selects
-//! Chinese; everything else falls back to English.
+//! Bilingual CLI messages. Chinese when the environment asks for it.
+//!
+//! Resolution: `DDC_LANG` (explicit `zh`/`en` override) > `LC_ALL` >
+//! `LC_MESSAGES` > `LANG` > `LANGUAGE`. A tag selects Chinese when its
+//! primary subtag starts with `zh` (zh, zh_CN, zh-Hans, zh_TW.UTF-8,
+//! …); any other stated language selects English. `LANGUAGE` is a
+//! colon-separated priority list (`zh:en`) — only its first entry
+//! counts. `C`, `POSIX` and empty values state no language: the chain
+//! keeps walking.
+//!
+//! Environment variables only — no Win32 locale API. cmd.exe and
+//! PowerShell define no locale variables by default (English fallback);
+//! set `DDC_LANG=zh` there. POSIX-ish Windows environments (Git Bash,
+//! Cygwin, WSL) provide `LANG` and are picked up automatically.
 
 use std::sync::OnceLock;
 
@@ -13,19 +23,50 @@ pub(crate) enum Lang {
 
 impl Lang {
     fn detect() -> Lang {
-        for var in ["DDC_LANG", "LC_ALL", "LC_MESSAGES", "LANG"] {
-            let Ok(v) = std::env::var(var) else { continue };
-            let v = v.to_ascii_lowercase();
-            if v.starts_with("zh") {
-                return Lang::Zh;
+        if let Ok(v) = std::env::var("DDC_LANG") {
+            // An explicit override — but only a recognizable one: a typo
+            // like DDC_LANG=fr must not pin the language, it falls
+            // through to the locale chain.
+            if let Some(p) = primary_tag(&v) {
+                if p.starts_with("zh") {
+                    return Lang::Zh;
+                }
+                if p.starts_with("en") {
+                    return Lang::En;
+                }
             }
-            // DDC_LANG is an explicit choice: `en` short-circuits even if
-            // LANG would have said zh.
-            if var == "DDC_LANG" && v.starts_with("en") {
-                return Lang::En;
+        }
+        for var in ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"] {
+            let Ok(v) = std::env::var(var) else { continue };
+            // LANGUAGE ("zh:en") is a priority list; the first entry
+            // decides, the rest are fallbacks we do not honor.
+            let first = v.split(':').find(|s| !s.is_empty()).unwrap_or("");
+            if let Some(p) = primary_tag(first) {
+                return if p.starts_with("zh") { Lang::Zh } else { Lang::En };
             }
         }
         Lang::En
+    }
+}
+
+/// The primary language subtag of a locale tag, lowercased: `zh_CN.UTF-8`
+/// → `zh`, `zh-Hans` → `zh`, `en_US` → `en`. The charset (`.UTF-8`) and
+/// modifier (`@cjk`) are stripped; `_` and `-` are both accepted as
+/// dialect separators. `None` when the tag states no language (empty,
+/// `C`, `POSIX`) — the caller keeps walking the variable chain.
+fn primary_tag(tag: &str) -> Option<String> {
+    let p = tag
+        .split(['.', '@'])
+        .next()
+        .unwrap_or("")
+        .split(['_', '-'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if p.is_empty() || p == "c" || p == "posix" {
+        None
+    } else {
+        Some(p)
     }
 }
 

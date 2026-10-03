@@ -54,92 +54,87 @@ fn print_help_en() {
     println!("ddc {} — DEX → Java decompiler", env!("CARGO_PKG_VERSION"));
     println!("https://github.com/ejfkdev/ddc  (MIT license)");
     println!();
-    println!("Language: auto-detected from DDC_LANG/LC_ALL/LANG (zh* selects");
-    println!("Chinese, anything else English); DDC_LANG=zh|en forces one.");
+    println!("Usage:");
+    println!("  ddc [OPTIONS] <INPUT>... [OUTPUT]     full decompile");
+    println!("  ddc <SUBCOMMAND> [ARGS...]            metadata query, no full decompile");
+    println!("  ddc help [SUBCOMMAND]                 this help, or one command's");
+    println!("  ddc version | -h | -V");
     println!();
-    println!("Decompiles Android DEX images (versions 035-041, multi-dex APKs,");
-    println!("XAPK/APKS/APKM containers, invoke-custom) back into readable Java —");
-    println!("fast enough for real-world app bundles (98k classes in ~13s) and");
-    println!("queryable like a database through the subcommands below.");
+    println!("Language: DDC_LANG=zh|en overrides; otherwise the first of LC_ALL,");
+    println!("LC_MESSAGES, LANG, LANGUAGE decides (zh* selects Chinese, any other");
+    println!("language English). Environment variables only — no Win32 locale");
+    println!("API; under cmd.exe/PowerShell set DDC_LANG explicitly.");
     println!();
-    println!("Usage: ddc [OPTIONS] <INPUT>... [OUTPUT]     # full decompile");
-    println!("       ddc <SUBCOMMAND> [ARGS...]             # progressive analysis");
-    println!("       ddc help | version | -h | -V");
+    println!("Decompiler for Android DEX images: versions 035-041, multi-dex APKs,");
+    println!("XAPK/APKS/APKM containers, invoke-custom. Twenty-plus subcommands");
+    println!("answer metadata queries (strings, cross-references, hierarchies,");
+    println!("per-method disassembly) without a full decompile.");
     println!();
-    println!("INPUT is a .dex file, an .apk/.jar/.zip archive (classes.dex,");
-    println!("classes2.dex, ...), an .xapk/.apks/.apkm container (a zip of APKs:");
-    println!("base + config splits; every inner APK's dexes merge, base first),");
-    println!("or a directory (scanned recursively). Multiple inputs merge into");
-    println!("one class pool (duplicate classes skipped).");
+    println!("INPUT: a .dex file, an .apk/.jar/.zip archive (classes.dex,");
+    println!("classes2.dex, ...), an .xapk/.apks/.apkm container (a zip of APKs;");
+    println!("every inner APK's dexes merge, base first), or a directory (scanned");
+    println!("recursively). Multiple inputs merge into one class pool (duplicate");
+    println!("classes deduplicated, first definition wins).");
     println!();
-    println!("OUTPUT, as the last positional argument or via -o:");
-    println!("  <dir>         output root, package structure preserved");
-    println!("  <file.java>   one class (single-class input or -c)");
-    println!("  -             stdout (`// ===== class =====` separators)");
-    println!("  default: <input-stem>-out/ next to the input");
+    println!("OUTPUT — last positional argument or -o:");
+    println!("  <dir>        output root, package structure preserved");
+    println!("  <file>.java  one class (single-class input or -c)");
+    println!("  -            stdout, classes separated by `// ===== class =====`");
+    println!("  default      <input-stem>-out/ next to the input");
     println!();
     println!("Options:");
     println!("  -o, --output <path>   output location (dir / file.java / -)");
-    println!("  -c, --class FQCN      decompile only this class (dotted/slashed)");
+    println!("  -c, --class FQCN      decompile only this class (dotted or slashed;");
+    println!("                        nested/anonymous/local classes of it included)");
     println!("  -l, --list            list class names and exit");
     println!("  -t, --threads <n>     parallel workers (default: CPU count minus the");
     println!("                        file-writer pool; stdout forces one thread for pool order)");
     println!("  --no-comments         omit the provenance header");
-    println!("  --symbols <dir>        render IntDef constants as names (built-in");
-    println!("                        by default; this rebuilds from an SDK platform");
+    println!("  --symbols <dir>       IntDef symbol table (built-in android-37 by");
+    println!("                        default; this rebuilds it from an SDK platform");
     println!("                        dir: android.jar + data/annotations.zip)");
     println!("  -v, --verbose         per-dex stats and slow classes on stderr");
     println!("  -h, --help            print this help");
     println!("  -V, --version         print name, version and homepage");
     println!();
-    println!("Progressive analysis — query the artifact as a database, no full");
-    println!("decompile; metadata loads take well under a second. All accept");
-    println!("-d/--dex NAME (repeatable, entry-name substring) to restrict the");
-    println!("image set, and most take -o to write results to a file.");
+    println!("Subcommands — `ddc help <SUBCOMMAND>` (or `ddc <SUBCOMMAND> --help`)");
+    println!("documents each command's own arguments and options. Commands that");
+    println!("read dex images accept -d/--dex NAME (repeatable, entry-name");
+    println!("substring) to restrict the image set.");
     println!();
-    println!("  Get oriented:");
-    println!("    ddc info <input>                    app context (label via resources.arsc,");
-    println!("                                        package, version, launcher, sdk, size,");
-    println!("                                        md5) + per-dex class/method counts");
-    println!("    ddc listclasses <input> [pattern]   class names, fuzzy filter");
-    println!("    ddc manifest <apk> [--component C]  AndroidManifest.xml → text XML");
-    println!("                                        (--component launcher|activity|");
-    println!("                                        service|receiver|provider)");
-    println!("    ddc mainactivity <apk>              package + launcher activity,");
-    println!("                                        verified against the dex");
-    println!("    ddc res <apk> [entry] [-o FILE]     list archive entries; dump one");
-    println!("                                        (binary XML decoded, binary via -o)");
+    println!("  Overview:");
+    println!("    info <input>                    app context + per-image counts");
+    println!("    listclasses <input> [pattern]   class names, fuzzy filter");
+    println!("    manifest <apk> [--component C]  AndroidManifest.xml → text XML");
+    println!("    mainactivity <apk>              package + launcher activity");
+    println!("    res <apk> [entry] [-o FILE]     archive entries; dump one");
     println!();
-    println!("  Find things:");
-    println!("    ddc strings <input> [-f TEXT] [--with-locations]");
-    println!("                                        string table; hits mapped to methods");
-    println!("    ddc findrefs <input> string TEXT    every string-literal reference");
-    println!("    ddc findrefs <input> type|method|field NAME [--class FQCN]");
-    println!("                                        refs to a type/call site/field");
-    println!("                                        (names fuzzy; --class exact unless");
-    println!("                                        --fuzzy-class)");
-    println!("    ddc callers <input> NAME [FQCN]     who invokes method NAME");
-    println!("    ddc members <input> [NAME] [--class FQCN] [--method|--field]");
-    println!("                                        method/field name search");
+    println!("  Search:");
+    println!("    strings <input> [-f TEXT] [--with-locations]");
+    println!("                                    string table, owning methods");
+    println!("    findrefs <input> string|type|method|field NAME [--class FQCN]");
+    println!("                                    cross-references to a query");
+    println!("    callers <input> NAME [FQCN]     methods invoking NAME");
+    println!("    members <input> [NAME] [--class FQCN] [--method|--field]");
+    println!("                                    method/field name search");
     println!();
-    println!("  Understand structure:");
-    println!("    ddc hierarchy <input> FQCN          lineage: extends/implements +");
-    println!("                                        subclasses/implementors");
-    println!("    ddc largest <input> [-n N]          top-N methods by instruction count");
-    println!("    ddc disasm <input> FQCN[.method]    raw bytecode (opcode + pc)");
+    println!("  Structure:");
+    println!("    hierarchy <input> FQCN          super-/subtypes of a class");
+    println!("    largest <input> [-n N]          top-N methods by instruction count");
+    println!("    disasm <input> FQCN[.method]    raw bytecode (opcode + pc)");
     println!();
-    println!("  Decompile surgically:");
-    println!("    ddc getclass <input> FQCN [-o f]    one class (+nested)");
-    println!("    ddc getmethod <input> FQCN.method   one method, all overloads");
-    println!("    ddc pkg <input> com.foo [-o DIR]    a whole package; --app takes");
-    println!("                                        the package from the manifest");
+    println!("  Targeted decompilation:");
+    println!("    getclass <input> FQCN [-o f]    one class (+nested)");
+    println!("    getmethod <input> FQCN.method   one method, all overloads");
+    println!("    pkg <input> com.foo [-o DIR]    one package; --app uses the");
+    println!("                                    manifest package");
     println!();
-    println!("Exit status: 0 ok; 1 some classes failed; 2 usage error.");
+    println!("Exit status: 0 success; 1 some classes failed; 2 usage error.");
     println!();
     println!("Examples:");
     println!("  # full decompile");
     println!("  ddc app.apk                          # → app-out/ next to the apk");
-    println!("  ddc app.apk src/                     # dae-style positional output");
+    println!("  ddc app.apk src/                     # positional output directory");
     println!("  ddc app.apk -o - | less              # everything to stdout");
     println!("  ddc base.apk patch.dex -o merged/    # split inputs, one pool");
     println!();
@@ -148,107 +143,101 @@ fn print_help_en() {
     println!("  ddc getclass app.apk com.example.Foo -o Foo.java --dex classes3");
     println!("  ddc getmethod app.apk com.example.Foo.toString");
     println!();
-    println!("  # find things");
+    println!("  # search");
     println!("  ddc findrefs app.apk string api_key");
     println!("  ddc findrefs app.apk method onCreate --class android/app/Activity");
     println!("  ddc strings app.apk -f token --with-locations");
     println!("  ddc callers app.apk sendMessage");
     println!();
-    println!("  # understand the app before decompiling anything");
+    println!("  # survey before decompiling");
     println!("  ddc mainactivity app.apk");
     println!("  ddc manifest app.apk --component launcher");
     println!("  ddc hierarchy app.apk androidx.fragment.app.FragmentActivity");
-    println!("  ddc pkg app.apk --app -o own/        # just the app's own code");
+    println!("  ddc pkg app.apk --app -o own/        # the app's own code only");
     println!();
-    println!("More: the full CLI reference (every option and subcommand in");
-    println!("detail), benchmarks and design notes live in docs/ (English and");
-    println!("简体中文) at https://github.com/ejfkdev/ddc");
+    println!("Full reference: docs/cli.md (English and 简体中文) at");
+    println!("https://github.com/ejfkdev/ddc");
 }
 
 fn print_help_zh() {
     println!("ddc {} — DEX → Java 反编译器", env!("CARGO_PKG_VERSION"));
     println!("https://github.com/ejfkdev/ddc （MIT 许可）");
     println!();
-    println!("语言：按 DDC_LANG/LC_ALL/LANG 自动识别（zh* 选中文，其余英文），");
-    println!("可用 DDC_LANG=zh|en 强制指定。");
+    println!("用法：");
+    println!("  ddc [选项] <输入>... [输出]           全量反编译");
+    println!("  ddc <子命令> [参数...]                元数据查询，不做全量反编译");
+    println!("  ddc help [子命令]                     本帮助，或单个子命令的说明");
+    println!("  ddc version | -h | -V");
     println!();
-    println!("把 Android DEX 镜像（版本 035-041、多 dex APK、XAPK/APKS/APKM 容器、");
-    println!("invoke-custom）反编译回可读的 Java —— 真实 App 级别的速度（9.8 万个");
-    println!("类约 5 秒），并可通过下面的子命令像查数据库一样查询。");
+    println!("语言：DDC_LANG=zh|en 强制指定；否则按 LC_ALL、LC_MESSAGES、LANG、");
+    println!("LANGUAGE 中第一个有值的变量判定（zh* 选中文，其余语言选英文）。");
+    println!("仅读取环境变量，不调用 Windows API；cmd.exe / PowerShell 下请显式");
+    println!("设置 DDC_LANG。");
     println!();
-    println!("用法：ddc [选项] <输入>... [输出]          # 全量反编译");
-    println!("      ddc <子命令> [参数...]               # 渐进式分析");
-    println!("      ddc help | version | -h | -V");
+    println!("Android DEX 镜像反编译器：支持版本 035-041、多 dex APK、");
+    println!("XAPK/APKS/APKM 容器、invoke-custom。二十余个子命令在不全量反编译的");
+    println!("前提下回答元数据查询（字符串、交叉引用、继承谱、单方法反汇编）。");
     println!();
-    println!("输入是 .dex 文件、.apk/.jar/.zip 归档（classes.dex、classes2.dex、…）、");
-    println!(".xapk/.apks/.apkm 容器（一 zip 的 APK：base + config 分包，每个内层");
-    println!("APK 的 dex 都并入池，base 优先）或目录（递归扫描）。多个输入合并进");
-    println!("一个类池（重名类自动去重）。");
+    println!("输入：.dex 文件、.apk/.jar/.zip 归档（classes.dex、classes2.dex、…）、");
+    println!(".xapk/.apks/.apkm 容器（一 zip 的 APK，每个内层 APK 的 dex 都并入池，");
+    println!("base 优先）或目录（递归扫描）。多个输入合并为一个类池（重名类去重，");
+    println!("首个定义生效）。");
     println!();
     println!("输出（最后一个位置参数或 -o）：");
     println!("  <目录>        输出根目录，保留包结构");
-    println!("  <文件.java>   单类（单类输入或 -c）");
-    println!("  -             stdout（`// ===== class =====` 分隔）");
-    println!("  默认：输入旁的 <输入名>-out/");
+    println!("  <文件>.java   单类（单类输入或 -c）");
+    println!("  -             stdout，类之间以 `// ===== class =====` 分隔");
+    println!("  默认          输入旁的 <输入名>-out/");
     println!();
     println!("选项：");
     println!("  -o, --output <路径>  输出位置（目录 / 文件.java / -）");
-    println!("  -c, --class FQCN     只反编译这个类（点分/斜杠均可）");
+    println!("  -c, --class FQCN     只反编译该类（点分/斜杠均可；嵌套/匿名/局部类一并输出）");
     println!("  -l, --list           列出类名后退出");
-    println!("  -t, --threads <n>    并行 worker 数（默认 CPU 数减去写盘线程；");
+    println!("  -t, --threads <n>    并行 worker 数（默认 CPU 数减写盘线程池；");
     println!("                       stdout 模式强制单线程保证池序）");
-    println!("  --no-comments        去掉出处注释头");
+    println!("  --no-comments        省略出处注释头");
+    println!("  --symbols <目录>     IntDef 符号表（默认内置 android-37；传入 SDK");
+    println!("                       平台目录可重建：android.jar + data/annotations.zip）");
     println!("  -v, --verbose        stderr 输出逐 dex 统计与慢类");
     println!("  -h, --help           打印本帮助");
     println!("  -V, --version        打印名称、版本与主页");
     println!();
-    println!("渐进式分析 —— 把编译产物当数据库查询，不做全量反编译；元数据加载");
-    println!("远低于一秒。所有子命令都接受 -d/--dex NAME（可重复，条目名子串）");
-    println!("缩小镜像范围，多数支持 -o 把结果写入文件。");
+    println!("子命令 —— `ddc help <子命令>`（或 `ddc <子命令> --help`）给出每个命令");
+    println!("自己的参数与选项。读取 dex 镜像的子命令均支持 -d/--dex NAME（可重复，");
+    println!("条目名子串）缩小镜像范围。");
     println!();
-    println!("  先摸清全貌：");
-    println!("    ddc info <输入>                     App 上下文（应用名走 resources.arsc");
-    println!("                                        解析、包名、版本、启动类、SDK、");
-    println!("                                        大小、md5）+ 每镜像类/方法计数");
-    println!("    ddc listclasses <输入> [模式]       类名清单，可模糊过滤");
-    println!("    ddc manifest <apk> [--component C]  AndroidManifest.xml → 文本 XML");
-    println!("                                        （--component launcher|activity|");
-    println!("                                        service|receiver|provider）");
-    println!("    ddc mainactivity <apk>              包名 + 启动 Activity，并在 dex");
-    println!("                                        里定位验证");
-    println!("    ddc res <apk> [条目] [-o 文件]      列出归档条目；输出单个内容");
-    println!("                                        （二进制 XML 解码，二进制 -o 保存）");
+    println!("  概览：");
+    println!("    info <输入>                     App 上下文 + 逐镜像计数");
+    println!("    listclasses <输入> [模式]       类名清单，可模糊过滤");
+    println!("    manifest <apk> [--component C]  AndroidManifest.xml → 文本 XML");
+    println!("    mainactivity <apk>              包名 + 启动 Activity");
+    println!("    res <apk> [条目] [-o 文件]      归档条目清单；输出单个内容");
     println!();
-    println!("  找东西：");
-    println!("    ddc strings <输入> [-f 文本] [--with-locations]");
-    println!("                                        字符串表；命中映射到所属方法");
-    println!("    ddc findrefs <输入> string 文本     全部字符串字面量引用");
-    println!("    ddc findrefs <输入> type|method|field 名字 [--class FQCN]");
-    println!("                                        类型/调用点/字段引用（名字模糊");
-    println!("                                        匹配；--class 默认精确，");
-    println!("                                        --fuzzy-class 变模糊）");
-    println!("    ddc callers <输入> 名字 [FQCN]      谁调用了这个方法");
-    println!("    ddc members <输入> [名字] [--class FQCN] [--method|--field]");
-    println!("                                        方法/字段名检索");
+    println!("  检索：");
+    println!("    strings <输入> [-f 文本] [--with-locations]");
+    println!("                                    字符串表及引用方法");
+    println!("    findrefs <输入> string|type|method|field 名字 [--class FQCN]");
+    println!("                                    对查询目标的交叉引用");
+    println!("    callers <输入> 名字 [FQCN]      调用该名字方法的所有方法");
+    println!("    members <输入> [名字] [--class FQCN] [--method|--field]");
+    println!("                                    方法/字段名检索");
     println!();
-    println!("  看清结构：");
-    println!("    ddc hierarchy <输入> FQCN           继承谱：extends/implements +");
-    println!("                                        子类/实现类");
-    println!("    ddc largest <输入> [-n N]           按指令数排序的 top-N 方法");
-    println!("    ddc disasm <输入> FQCN[.方法]       原始字节码（操作码 + pc）");
+    println!("  结构：");
+    println!("    hierarchy <输入> FQCN           类的超类/子类谱系");
+    println!("    largest <输入> [-n N]           按指令数排序的前 N 个方法");
+    println!("    disasm <输入> FQCN[.方法]       原始字节码（操作码 + pc）");
     println!();
-    println!("  精准反编译：");
-    println!("    ddc getclass <输入> FQCN [-o 文件]  单类（含嵌套）");
-    println!("    ddc getmethod <输入> FQCN.方法      单方法，含全部重载");
-    println!("    ddc pkg <输入> com.foo [-o 目录]    整个包；--app 自动取 manifest");
-    println!("                                        包名");
+    println!("  定点反编译：");
+    println!("    getclass <输入> FQCN [-o 文件]  单类（含嵌套）");
+    println!("    getmethod <输入> FQCN.方法      单方法，含全部重载");
+    println!("    pkg <输入> com.foo [-o 目录]    单个包；--app 取 manifest 包名");
     println!();
     println!("退出码：0 成功；1 部分类失败；2 用法错误。");
     println!();
     println!("示例：");
     println!("  # 全量反编译");
     println!("  ddc app.apk                          # → apk 旁的 app-out/");
-    println!("  ddc app.apk src/                     # dae 风格位置参数输出");
+    println!("  ddc app.apk src/                     # 位置参数输出目录");
     println!("  ddc app.apk -o - | less              # 全部输出到 stdout");
     println!("  ddc base.apk patch.dex -o merged/    # 分体输入合并一个池");
     println!();
@@ -257,20 +246,477 @@ fn print_help_zh() {
     println!("  ddc getclass app.apk com.example.Foo -o Foo.java --dex classes3");
     println!("  ddc getmethod app.apk com.example.Foo.toString");
     println!();
-    println!("  # 找东西");
+    println!("  # 检索");
     println!("  ddc findrefs app.apk string api_key");
     println!("  ddc findrefs app.apk method onCreate --class android/app/Activity");
     println!("  ddc strings app.apk -f token --with-locations");
     println!("  ddc callers app.apk sendMessage");
     println!();
-    println!("  # 反编译之前先摸清这个 App");
+    println!("  # 反编译前先做概览");
     println!("  ddc mainactivity app.apk");
     println!("  ddc manifest app.apk --component launcher");
     println!("  ddc hierarchy app.apk androidx.fragment.app.FragmentActivity");
     println!("  ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码");
     println!();
-    println!("更多：完整 CLI 参考（全部选项与子命令详解）、基准与设计文档见");
-    println!("docs/（英文与简体中文）https://github.com/ejfkdev/ddc");
+    println!("完整参考：docs/cli.md（英文与简体中文）https://github.com/ejfkdev/ddc");
+}
+
+/// One subcommand's `ddc help <name>` card: description, usage
+/// signature, positional arguments, and the command's own options. The
+/// shared `-h, --help` row is appended at print time.
+struct SubHelp {
+    desc: &'static str,
+    usage: &'static str,
+    args: &'static [(&'static str, &'static str)],
+    opts: &'static [(&'static str, &'static str)],
+}
+
+// Option entries shared by several commands.
+const DEX_EN: (&str, &str) = (
+    "-d, --dex NAME",
+    "restrict to images whose entry name contains NAME (repeatable)",
+);
+const DEX_ZH: (&str, &str) = (
+    "-d, --dex NAME",
+    "限定镜像范围：条目名包含 NAME（可重复）",
+);
+const OUT_FILE_EN: (&str, &str) = (
+    "-o, --output FILE",
+    "write the result to FILE instead of stdout",
+);
+const OUT_FILE_ZH: (&str, &str) = (
+    "-o, --output FILE",
+    "结果写入 FILE 而非 stdout",
+);
+
+const SUB_HELP_EN: &[(&str, SubHelp)] = &[
+    (
+        "info",
+        SubHelp {
+            desc: "application context and per-image statistics",
+            usage: "ddc info <INPUT> [options]",
+            args: &[],
+            opts: &[DEX_EN],
+        },
+    ),
+    (
+        "listclasses",
+        SubHelp {
+            desc: "list class names, optionally filtered",
+            usage: "ddc listclasses <INPUT> [PATTERN] [options]",
+            args: &[("PATTERN", "case-insensitive substring filter")],
+            opts: &[DEX_EN],
+        },
+    ),
+    (
+        "manifest",
+        SubHelp {
+            desc: "decode AndroidManifest.xml into text XML",
+            usage: "ddc manifest <APK> [options]",
+            args: &[],
+            opts: &[
+                (
+                    "-c, --component KIND",
+                    "emit one component group only (launcher|activity|service|receiver|provider)",
+                ),
+                OUT_FILE_EN,
+            ],
+        },
+    ),
+    (
+        "mainactivity",
+        SubHelp {
+            desc: "print the package and launcher activity, verified against the dex",
+            usage: "ddc mainactivity <APK> [options]",
+            args: &[],
+            opts: &[DEX_EN],
+        },
+    ),
+    (
+        "res",
+        SubHelp {
+            desc: "list archive entries, or dump one entry's content",
+            usage: "ddc res <APK> [ENTRY] [options]",
+            args: &[("ENTRY", "archive entry to dump; without it, all entries are listed")],
+            opts: &[
+                (
+                    "-o, --output FILE",
+                    "write the entry's raw bytes (binary XML stays binary; stdout decodes it)",
+                ),
+            ],
+        },
+    ),
+    (
+        "strings",
+        SubHelp {
+            desc: "the string table, with the methods referencing each string",
+            usage: "ddc strings <INPUT> [options]",
+            args: &[],
+            opts: &[
+                (
+                    "-f, --filter TEXT",
+                    "keep strings containing TEXT (case-insensitive)",
+                ),
+                (
+                    "--with-locations",
+                    "map each string to its referencing methods",
+                ),
+                DEX_EN,
+            ],
+        },
+    ),
+    (
+        "findrefs",
+        SubHelp {
+            desc: "cross-references: every method site referencing the query",
+            usage: "ddc findrefs <INPUT> <KIND> <QUERY> [options]",
+            args: &[
+                ("KIND", "string | type | method | field"),
+                ("QUERY", "the string, type, method, or field name to resolve"),
+            ],
+            opts: &[
+                (
+                    "-C, --class FQCN",
+                    "owner class for method/field queries (exact unless --fuzzy-class)",
+                ),
+                ("--fuzzy-class", "match the owner class fuzzily"),
+                OUT_FILE_EN,
+                DEX_EN,
+            ],
+        },
+    ),
+    (
+        "callers",
+        SubHelp {
+            desc: "methods that invoke a method by name",
+            usage: "ddc callers <INPUT> <NAME> [FQCN] [options]",
+            args: &[
+                ("NAME", "method name to search"),
+                ("FQCN", "optional owner class, narrows the search"),
+            ],
+            opts: &[DEX_EN],
+        },
+    ),
+    (
+        "members",
+        SubHelp {
+            desc: "method and field name search",
+            usage: "ddc members <INPUT> [NAME] [options]",
+            args: &[("NAME", "name substring to search")],
+            opts: &[
+                (
+                    "-C, --class FQCN",
+                    "restrict to one class (exact unless --fuzzy-class)",
+                ),
+                ("--fuzzy-class", "match the class fuzzily"),
+                ("--method", "methods only"),
+                ("--field", "fields only"),
+                DEX_EN,
+            ],
+        },
+    ),
+    (
+        "hierarchy",
+        SubHelp {
+            desc: "supertypes (extends/implements) and subtypes of a class",
+            usage: "ddc hierarchy <INPUT> <FQCN> [options]",
+            args: &[("FQCN", "class name, dotted or slashed")],
+            opts: &[DEX_EN],
+        },
+    ),
+    (
+        "largest",
+        SubHelp {
+            desc: "largest methods by instruction count",
+            usage: "ddc largest <INPUT> [options]",
+            args: &[],
+            opts: &[("-n N", "report the top N methods (default 20)"), DEX_EN],
+        },
+    ),
+    (
+        "disasm",
+        SubHelp {
+            desc: "raw bytecode listing of a class or one method",
+            usage: "ddc disasm <INPUT> <FQCN>[.<method>] [options]",
+            args: &[("FQCN[.<method>]", "dotted class name, optionally .method")],
+            opts: &[DEX_EN],
+        },
+    ),
+    (
+        "getclass",
+        SubHelp {
+            desc: "decompile one class, nested classes included",
+            usage: "ddc getclass <INPUT>... <FQCN> [options]",
+            args: &[
+                ("<INPUT>...", "one or more inputs, merged into one class pool"),
+                ("FQCN", "class name, dotted or slashed"),
+            ],
+            opts: &[OUT_FILE_EN, DEX_EN],
+        },
+    ),
+    (
+        "getmethod",
+        SubHelp {
+            desc: "decompile one method, all of its overloads",
+            usage: "ddc getmethod <INPUT> <FQCN>.<method> [options]",
+            args: &[("FQCN.<method>", "dotted class name and method name")],
+            opts: &[OUT_FILE_EN, DEX_EN],
+        },
+    ),
+    (
+        "pkg",
+        SubHelp {
+            desc: "decompile every class of one package",
+            usage: "ddc pkg <INPUT> <PACKAGE> [options]",
+            args: &[("PACKAGE", "package name (omit with --app)")],
+            opts: &[
+                (
+                    "--app",
+                    "take the package from AndroidManifest.xml instead",
+                ),
+                (
+                    "-o, --output DIR",
+                    "output root (default: <package>-out/)",
+                ),
+                (
+                    "-t, --threads N",
+                    "parallel workers (default: CPU count)",
+                ),
+                DEX_EN,
+            ],
+        },
+    ),
+];
+
+const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
+    (
+        "info",
+        SubHelp {
+            desc: "App 上下文与逐镜像统计",
+            usage: "ddc info <输入> [选项]",
+            args: &[],
+            opts: &[DEX_ZH],
+        },
+    ),
+    (
+        "listclasses",
+        SubHelp {
+            desc: "列出类名，可按模式过滤",
+            usage: "ddc listclasses <输入> [PATTERN] [选项]",
+            args: &[("PATTERN", "大小写不敏感的子串过滤")],
+            opts: &[DEX_ZH],
+        },
+    ),
+    (
+        "manifest",
+        SubHelp {
+            desc: "将 AndroidManifest.xml 解码为文本 XML",
+            usage: "ddc manifest <APK> [选项]",
+            args: &[],
+            opts: &[
+                (
+                    "-c, --component KIND",
+                    "只输出一组组件（launcher|activity|service|receiver|provider）",
+                ),
+                OUT_FILE_ZH,
+            ],
+        },
+    ),
+    (
+        "mainactivity",
+        SubHelp {
+            desc: "输出包名与启动 Activity，并在 dex 中定位验证",
+            usage: "ddc mainactivity <APK> [选项]",
+            args: &[],
+            opts: &[DEX_ZH],
+        },
+    ),
+    (
+        "res",
+        SubHelp {
+            desc: "列出归档条目，或输出单个条目的内容",
+            usage: "ddc res <APK> [ENTRY] [选项]",
+            args: &[("ENTRY", "要输出的归档条目；省略时列出全部条目")],
+            opts: &[
+                (
+                    "-o, --output FILE",
+                    "写入条目的原始字节（二进制 XML 保持原样；stdout 输出为解码文本）",
+                ),
+            ],
+        },
+    ),
+    (
+        "strings",
+        SubHelp {
+            desc: "字符串表及引用各字符串的方法",
+            usage: "ddc strings <输入> [选项]",
+            args: &[],
+            opts: &[
+                (
+                    "-f, --filter TEXT",
+                    "只保留包含 TEXT 的字符串（大小写不敏感）",
+                ),
+                (
+                    "--with-locations",
+                    "将每个字符串映射到引用它的方法",
+                ),
+                DEX_ZH,
+            ],
+        },
+    ),
+    (
+        "findrefs",
+        SubHelp {
+            desc: "交叉引用：引用查询目标的全部方法位点",
+            usage: "ddc findrefs <输入> <KIND> <QUERY> [选项]",
+            args: &[
+                ("KIND", "string | type | method | field"),
+                ("QUERY", "要解析的字符串/类型/方法/字段名"),
+            ],
+            opts: &[
+                (
+                    "-C, --class FQCN",
+                    "method/field 查询的所属类（默认精确，--fuzzy-class 改模糊）",
+                ),
+                ("--fuzzy-class", "所属类模糊匹配"),
+                OUT_FILE_ZH,
+                DEX_ZH,
+            ],
+        },
+    ),
+    (
+        "callers",
+        SubHelp {
+            desc: "按方法名检索其调用方",
+            usage: "ddc callers <输入> <NAME> [FQCN] [选项]",
+            args: &[
+                ("NAME", "要检索的方法名"),
+                ("FQCN", "可选的所属类，用于缩小范围"),
+            ],
+            opts: &[DEX_ZH],
+        },
+    ),
+    (
+        "members",
+        SubHelp {
+            desc: "方法与字段名检索",
+            usage: "ddc members <输入> [NAME] [选项]",
+            args: &[("NAME", "要检索的名字子串")],
+            opts: &[
+                (
+                    "-C, --class FQCN",
+                    "限定单个类（默认精确，--fuzzy-class 改模糊）",
+                ),
+                ("--fuzzy-class", "所属类模糊匹配"),
+                ("--method", "仅方法"),
+                ("--field", "仅字段"),
+                DEX_ZH,
+            ],
+        },
+    ),
+    (
+        "hierarchy",
+        SubHelp {
+            desc: "一个类的超类（extends/implements）与子类谱系",
+            usage: "ddc hierarchy <输入> <FQCN> [选项]",
+            args: &[("FQCN", "类名，点分/斜杠均可")],
+            opts: &[DEX_ZH],
+        },
+    ),
+    (
+        "largest",
+        SubHelp {
+            desc: "按指令数排序的最大方法",
+            usage: "ddc largest <输入> [选项]",
+            args: &[],
+            opts: &[("-n N", "输出前 N 个方法（默认 20）"), DEX_ZH],
+        },
+    ),
+    (
+        "disasm",
+        SubHelp {
+            desc: "一个类或单个方法的原始字节码清单",
+            usage: "ddc disasm <输入> <FQCN>[.<方法>] [选项]",
+            args: &[("FQCN[.<方法>]", "点分类名，可选 .方法")],
+            opts: &[DEX_ZH],
+        },
+    ),
+    (
+        "getclass",
+        SubHelp {
+            desc: "反编译单个类，嵌套类一并输出",
+            usage: "ddc getclass <输入>... <FQCN> [选项]",
+            args: &[
+                ("<输入>...", "一个或多个输入，合并为一个类池"),
+                ("FQCN", "类名，点分/斜杠均可"),
+            ],
+            opts: &[OUT_FILE_ZH, DEX_ZH],
+        },
+    ),
+    (
+        "getmethod",
+        SubHelp {
+            desc: "反编译单个方法，含其全部重载",
+            usage: "ddc getmethod <输入> <FQCN>.<方法> [选项]",
+            args: &[("FQCN.<方法>", "点分类名与方法名")],
+            opts: &[OUT_FILE_ZH, DEX_ZH],
+        },
+    ),
+    (
+        "pkg",
+        SubHelp {
+            desc: "反编译一个包下的全部类",
+            usage: "ddc pkg <输入> <包名> [选项]",
+            args: &[("包名", "包名（与 --app 同用时省略）")],
+            opts: &[
+                (
+                    "--app",
+                    "改用 AndroidManifest.xml 中的包名",
+                ),
+                (
+                    "-o, --output DIR",
+                    "输出根目录（默认：<包名>-out/）",
+                ),
+                (
+                    "-t, --threads N",
+                    "并行 worker 数（默认 CPU 数）",
+                ),
+                DEX_ZH,
+            ],
+        },
+    ),
+];
+
+/// `ddc help <SUBCOMMAND>` / `ddc <SUBCOMMAND> --help`: the command's own
+/// signature. Spec columns are ASCII even in the Chinese table, so the
+/// len-based column padding stays aligned.
+fn print_subcommand_help(cmd: &str) {
+    let table = match lang::lang() {
+        lang::Lang::Zh => SUB_HELP_ZH,
+        lang::Lang::En => SUB_HELP_EN,
+    };
+    let Some((_, h)) = table.iter().find(|(name, _)| *name == cmd) else {
+        return;
+    };
+    println!("ddc {} — {}", cmd, h.desc);
+    println!();
+    println!("{} {}", bi!("Usage:", "用法："), h.usage);
+    if !h.args.is_empty() {
+        println!();
+        println!("{}", bi!("Arguments:", "参数："));
+        let w = h.args.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
+        for (spec, d) in h.args {
+            println!("  {spec:<w$}  {d}");
+        }
+    }
+    println!();
+    println!("{}", bi!("Options:", "选项："));
+    let mut rows: Vec<(&str, &str)> = h.opts.to_vec();
+    rows.push(("-h, --help", bi!("print this help", "打印本帮助")));
+    let w = rows.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
+    for (spec, d) in &rows {
+        println!("  {spec:<w$}  {d}");
+    }
 }
 
 #[allow(dead_code)]
@@ -396,7 +842,7 @@ fn main() {
     }
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if let Err(e) = load_symbols_from_args(&args) {
-        eprintln!("ddc: {e:?}");
+        eprintln!("ddc: {e:#}");
         std::process::exit(2);
     }
     // --symbols (and the generation-only --symbols-out) are consumed
@@ -408,26 +854,66 @@ fn main() {
             args.drain(i..(i + 2).min(args.len()));
         }
     }
+    // No arguments at all: the help IS the default action (stdout, exit 0).
+    if args.is_empty() {
+        print_help();
+        return;
+    }
+    // help / version as the leading word — routed before subcommand
+    // dispatch and before any positional-input interpretation.
+    match args[0].as_str() {
+        "help" | "-h" | "--help" => {
+            match args.get(1).map(String::as_str) {
+                // `ddc help <subcommand>`: that command's own signature.
+                Some(topic) if !topic.starts_with('-') => {
+                    if is_subcommand(topic) {
+                        print_subcommand_help(topic);
+                    } else {
+                        eprintln!(
+                            "ddc: {}",
+                            bif!(
+                                "unknown help topic: {0} (try `ddc help`)",
+                                "未知帮助主题：{0}（可用 `ddc help`）";
+                                topic
+                            )
+                        );
+                        std::process::exit(2);
+                    }
+                }
+                _ => print_help(),
+            }
+            return;
+        }
+        "version" | "-V" | "--version" => {
+            print_version();
+            return;
+        }
+        _ => {}
+    }
     // Leading subcommand word (unless an actual path shadows it) routes
     // to the metadata fast paths: query the artifact as a database
     // instead of decompiling everything.
     if let Some(cmd) = args.first() {
         if is_subcommand(cmd) && !Path::new(cmd).exists() {
-            if let Err(e) = run_subcommand(cmd, &args[1..]) {
-                eprintln!("ddc: {e:?}");
-                eprintln!();
-                print_help();
+            let rest = &args[1..];
+            // `-h`/`--help` anywhere after the subcommand word shows that
+            // subcommand's help — handled here so every command gets it
+            // without touching fifteen argument loops.
+            if rest.iter().any(|a| a == "-h" || a == "--help") {
+                print_subcommand_help(cmd);
+                return;
+            }
+            if let Err(e) = run_subcommand(cmd, rest) {
+                // The message only: a wall of help after every typo is
+                // noise, and `ddc help` is one short invocation away.
+                eprintln!("ddc: {e:#}");
                 std::process::exit(2);
             }
             return;
         }
     }
     if let Err(e) = run() {
-        // Invalid invocation: show what went wrong, then the full help so
-        // the user does not have to re-run with -h.
-        eprintln!("ddc: {e:?}");
-        eprintln!();
-        print_help();
+        eprintln!("ddc: {e:#}");
         std::process::exit(2);
     }
 }
@@ -740,6 +1226,28 @@ fn cmd_manifest(args: &[String], t0: std::time::Instant) -> Result<()> {
 // ---- info -------------------------------------------------------------------
 
 fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
+    // Option loop like every other subcommand: -d restricts the image
+    // set, unknown options error instead of being silently ignored.
+    let mut dex_filters: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-d" | "--dex" => {
+                dex_filters.push(
+                    args.get(i + 1)
+                        .context(bi!("--dex needs a value", "--dex 需要一个值"))?
+                        .to_string(),
+                );
+                i += 1;
+            }
+            a if a.starts_with('-') => bail!(
+                "{}",
+                bif!("info: unknown option {0}", "info：未知选项 {0}"; a)
+            ),
+            _ => {}
+        }
+        i += 1;
+    }
     let input = sub_input(args, "info")?;
     // Context header — best effort: only when a manifest exists (an APK
     // or container; a bare .dex/jar drops straight to the table). The
@@ -800,7 +1308,7 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
     }
     println!();
     let files = expand_inputs(&[input])?;
-    let parsed = parse_images(collect_images(&files)?)?;
+    let parsed = parse_images(filter_images_by_dex(collect_images(&files)?, &dex_filters)?)?;
     let mut total_classes = 0usize;
     println!(
         "{:>10}  {:>8}  {:>10}  {:>10}  {:>9}  {:>10}",
@@ -1217,11 +1725,9 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
     if positionals.len() < 3 {
         bail!(
             "{}",
-            bi!(
-                "findrefs needs: <input> <string|type|method|field> <query> \\
-             (method/field also take --class X, --fuzzy-class)",
-                "findrefs 需要：<输入> <string|type|method|field> <查询> \\
-             （method/field 还可加 --class X、--fuzzy-class）"
+            bif!(
+                "findrefs needs <input> <string|type|method|field> <query> (method/field also take --class X, --fuzzy-class)",
+                "findrefs 需要 <输入> <string|type|method|field> <查询>（method/field 还可加 --class X、--fuzzy-class）"
             )
         );
     }

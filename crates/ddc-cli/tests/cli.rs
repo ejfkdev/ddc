@@ -63,8 +63,14 @@ fn help_and_version() {
     assert!(o.status.success());
     let out = stdout(&o);
     assert!(
-        out.contains("Usage: ddc [OPTIONS] <INPUT>... [OUTPUT]"),
+        out.contains("Usage:\n  ddc [OPTIONS] <INPUT>... [OUTPUT]"),
         "usage:\n{}",
+        out
+    );
+    // `ddc help [SUBCOMMAND]` is part of the usage block.
+    assert!(
+        out.contains("ddc help [SUBCOMMAND]"),
+        "help routing:\n{}",
         out
     );
     // Name, version and homepage lead the help.
@@ -78,8 +84,14 @@ fn help_and_version() {
     // Worked examples and the subcommand menu are part of the help.
     assert!(out.contains("Examples:"), "examples:\n{}", out);
     assert!(
-        out.contains("ddc pkg <input> com.foo [-o DIR]"),
+        out.contains("pkg <input> com.foo [-o DIR]"),
         "subcommands:\n{}",
+        out
+    );
+    // Every listed subcommand documents its own options.
+    assert!(
+        out.contains("ddc help <SUBCOMMAND>"),
+        "per-command help hint:\n{}",
         out
     );
 
@@ -108,14 +120,54 @@ fn help_and_version() {
 }
 
 #[test]
-fn no_input_is_usage_error() {
+fn no_args_prints_help_usage_errors_print_one_line() {
+    // No arguments at all: the help is the default action (stdout, 0).
     let o = run(&mut ddc());
-    assert_eq!(o.status.code(), Some(2));
-    assert!(stderr(&o).contains("no input given"));
+    assert!(o.status.success(), "{}", stderr(&o));
+    assert!(stdout(&o).starts_with("ddc "));
+    assert_eq!(stderr(&o), "");
 
+    // A usage error prints exactly the message — no help dump after it.
     let o = run(ddc().arg("--bogus"));
     assert_eq!(o.status.code(), Some(2));
-    assert!(stderr(&o).contains("unknown option"));
+    assert_eq!(stdout(&o), "");
+    let err = stderr(&o);
+    assert!(err.contains("unknown option"), "{}", err);
+    assert_eq!(err.lines().count(), 1, "error must be one line:\n{}", err);
+}
+
+#[test]
+fn subcommand_help_and_error_routing() {
+    // `ddc help <cmd>` and `ddc <cmd> --help` show the command's own
+    // signature: positional arguments plus its specific options.
+    for invocation in [vec!["help", "getclass"], vec!["getclass", "--help"]] {
+        let o = run(ddc().args(&invocation));
+        assert!(o.status.success(), "{}", stderr(&o));
+        let out = stdout(&o);
+        assert!(out.contains("ddc getclass — "), "{}", out);
+        assert!(
+            out.contains("Usage: ddc getclass <INPUT>... <FQCN>"),
+            "{}",
+            out
+        );
+        assert!(out.contains("Arguments:"), "{}", out);
+        assert!(out.contains("-o, --output FILE"), "{}", out);
+        assert!(out.contains("-d, --dex NAME"), "{}", out);
+    }
+
+    // Unknown help topic: one error line, exit 2.
+    let o = run(ddc().arg("help").arg("nonsense"));
+    assert_eq!(o.status.code(), Some(2));
+    assert!(stderr(&o).contains("unknown help topic"), "{}", stderr(&o));
+    assert_eq!(stdout(&o), "");
+
+    // A subcommand error prints the message only — no help dump.
+    let o = run(ddc().arg("getclass"));
+    assert_eq!(o.status.code(), Some(2));
+    assert_eq!(stdout(&o), "");
+    let err = stderr(&o);
+    assert!(err.contains("needs a class name"), "{}", err);
+    assert_eq!(err.lines().count(), 1, "error must be one line:\n{}", err);
 }
 
 #[test]
@@ -342,14 +394,64 @@ fn language_autodetect_and_override() {
         .arg("-V"));
     assert!(stdout(&o).contains("decompiler"), "{}", stdout(&o));
 
-    // Errors localize too: LANG=zh + a bad option → Chinese message +
-    // the full (Chinese) help.
+    // Errors localize too: LANG=zh + a bad option → the Chinese message
+    // ONLY — one line, nothing on stdout.
     let o = run(ddc()
         .env_remove("DDC_LANG")
         .env("LANG", "zh_CN.UTF-8")
         .arg("--bogus"));
     assert_eq!(o.status.code(), Some(2));
     assert!(stderr(&o).contains("未知选项"), "{}", stderr(&o));
-    // The full help follows the error — on stdout.
-    assert!(stdout(&o).contains("用法："), "{}", stdout(&o));
+    assert_eq!(stdout(&o), "");
+}
+
+#[test]
+fn language_chain_priority_and_neutral_tags() {
+    // LC_ALL outranks LANG (POSIX priority — a stated en wins over zh).
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env("LC_ALL", "en_US.UTF-8")
+        .env("LANG", "zh_CN.UTF-8")
+        .arg("-V"));
+    assert!(stdout(&o).contains("decompiler"), "{}", stdout(&o));
+
+    // C states no language: the chain walks on to LANG.
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env("LC_ALL", "C")
+        .env("LANG", "zh_CN.UTF-8")
+        .arg("-V"));
+    assert!(stdout(&o).contains("反编译器"), "{}", stdout(&o));
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env("LC_ALL", "POSIX")
+        .env("LANG", "zh_TW")
+        .arg("-V"));
+    assert!(stdout(&o).contains("反编译器"), "{}", stdout(&o));
+
+    // LANGUAGE is a priority list: the first entry decides.
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env("LANGUAGE", "zh:en")
+        .env_remove("LANG")
+        .arg("-V"));
+    assert!(stdout(&o).contains("反编译器"), "{}", stdout(&o));
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env("LANGUAGE", "fr:zh")
+        .env_remove("LANG")
+        .arg("-V"));
+    assert!(stdout(&o).contains("decompiler"), "{}", stdout(&o));
+
+    // BCP-47 style zh-Hans and a typo'd DDC_LANG (falls through to LANG).
+    let o = run(ddc()
+        .env_remove("DDC_LANG")
+        .env("LANG", "zh-Hans")
+        .arg("-V"));
+    assert!(stdout(&o).contains("反编译器"), "{}", stdout(&o));
+    let o = run(ddc()
+        .env("DDC_LANG", "fr")
+        .env("LANG", "zh_CN.UTF-8")
+        .arg("-V"));
+    assert!(stdout(&o).contains("反编译器"), "{}", stdout(&o));
 }
