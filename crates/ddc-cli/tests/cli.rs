@@ -8,9 +8,14 @@ use std::process::{Command, Output};
 fn ddc() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_ddc"));
     c.env_remove("DDC_NOWRITE").env_remove("DDC_CLASSTIME");
-    // Pin English: the binary localizes from the environment, and a
-    // zh_* locale on the dev machine would flip every assertion below.
+    // Pin English by default AND strip the runner's whole locale set:
+    // the language tests set exactly the variables they exercise, and a
+    // CI image exporting LC_ALL=en_US would otherwise outrank the LANG
+    // under test (correctly, per POSIX priority — so it must not leak).
     c.env("DDC_LANG", "en");
+    for v in ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"] {
+        c.env_remove(v);
+    }
     c
 }
 
