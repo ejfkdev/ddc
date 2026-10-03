@@ -23,7 +23,7 @@
 | `ddc disasm app.apk FQCN[.method]` | 单类/单方法原始字节码（操作码+pc） | **0.04s** |
 | `ddc callers app.apk NAME [FQCN]` | 谁调用了方法 NAME（复用 findrefs 方法扫描） | ~0.5s |
 | `ddc getmethod app.apk FQCN.method` | 方法粒度切片：只输出目标方法及其全部重载 | **0.03s** |
-| `ddc pkg app.apk com.example.foo [-o DIR]` | 整包反编译（只跑选中类的完整管线）；`--app` 自动取 manifest 包名（空时回退 launcher 包） | 0.165s（Telegram tgnet 1561 类）/ `--app` 1.7s（org.telegram 5103 类） |
+| `ddc pkg app.apk com.example.foo [-o DIR]` | 整包反编译（段边界前缀匹配，含子包；只跑选中类的完整管线）；`--app` 自动取 manifest 包名（空时回退 launcher 包） | 0.165s（Telegram tgnet 1561 类）/ `--app` 1.7s（org.telegram 5103 类） |
 | `ddc mainactivity app.apk` | manifest 包名 + MAIN/LAUNCHER 入口 Activity，并在 dex 里定位验证 | **0.02s** |
 | `ddc res app.apk [entry] [-o FILE]` | 列出全部归档条目（含 XAPK 内层 APK）；`res <apk> res/values/strings.xml` 解码二进制 XML，文本直出，二进制 `-o` 保存 | **0.01s** |
 | `ddc manifest app.apk --component launcher` | 组件过滤（launcher/activity/service/receiver/provider） | **0.06s** |

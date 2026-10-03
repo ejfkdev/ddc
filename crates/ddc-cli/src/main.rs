@@ -98,7 +98,7 @@ fn print_help_en() {
     println!("  -V, --version         print name, version and homepage");
     println!();
     println!("Subcommands — `ddc help <SUBCOMMAND>` (or `ddc <SUBCOMMAND> --help`)");
-    println!("documents each command's own arguments and options. Commands that");
+    println!("documents each command's own arguments, options, and examples.");
     println!("read dex images accept -d/--dex NAME (repeatable, entry-name");
     println!("substring) to restrict the image set.");
     println!();
@@ -126,8 +126,8 @@ fn print_help_en() {
     println!("  Targeted decompilation:");
     println!("    getclass <input> FQCN [-o f]    one class (+nested)");
     println!("    getmethod <input> FQCN.method   one method, all overloads");
-    println!("    pkg <input> com.foo [-o DIR]    one package; --app uses the");
-    println!("                                    manifest package");
+    println!("    pkg <input> com.foo [-o DIR]    one package incl. subpackages;");
+    println!("                                    --app uses the manifest package");
     println!();
     println!("Exit status: 0 success; 1 some classes failed; 2 usage error.");
     println!();
@@ -203,7 +203,7 @@ fn print_help_zh() {
     println!("  -V, --version        打印名称、版本与主页");
     println!();
     println!("子命令 —— `ddc help <子命令>`（或 `ddc <子命令> --help`）给出每个命令");
-    println!("自己的参数与选项。读取 dex 镜像的子命令均支持 -d/--dex NAME（可重复，");
+    println!("自己的参数、选项与示例。读取 dex 镜像的子命令均支持 -d/--dex NAME（可重复，");
     println!("条目名子串）缩小镜像范围。");
     println!();
     println!("  概览：");
@@ -230,7 +230,7 @@ fn print_help_zh() {
     println!("  定点反编译：");
     println!("    getclass <输入> FQCN [-o 文件]  单类（含嵌套）");
     println!("    getmethod <输入> FQCN.方法      单方法，含全部重载");
-    println!("    pkg <输入> com.foo [-o 目录]    单个包；--app 取 manifest 包名");
+    println!("    pkg <输入> com.foo [-o 目录]    单个包（含子包）；--app 取 manifest 包名");
     println!();
     println!("退出码：0 成功；1 部分类失败；2 用法错误。");
     println!();
@@ -262,13 +262,16 @@ fn print_help_zh() {
 }
 
 /// One subcommand's `ddc help <name>` card: description, usage
-/// signature, positional arguments, and the command's own options. The
-/// shared `-h, --help` row is appended at print time.
+/// signature, positional arguments, the command's own options, and
+/// worked examples. The shared `-h, --help` row is appended at print
+/// time.
 struct SubHelp {
     desc: &'static str,
     usage: &'static str,
     args: &'static [(&'static str, &'static str)],
     opts: &'static [(&'static str, &'static str)],
+    /// (command line, what it does) pairs.
+    examples: &'static [(&'static str, &'static str)],
 }
 
 // Option entries shared by several commands.
@@ -295,8 +298,15 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "application context and per-image statistics",
             usage: "ddc info <INPUT> [options]",
-            args: &[],
-            opts: &[DEX_EN],
+            args: &[
+            ],
+            opts: &[
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc info app.apk", "app context and the per-image class/method/field table"),
+                ("ddc info app.apk -d classes2", "restrict the table to matching images"),
+            ],
         },
     ),
     (
@@ -304,8 +314,16 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "list class names, optionally filtered",
             usage: "ddc listclasses <INPUT> [PATTERN] [options]",
-            args: &[("PATTERN", "case-insensitive substring filter")],
-            opts: &[DEX_EN],
+            args: &[
+                ("PATTERN", "case-insensitive substring filter"),
+            ],
+            opts: &[
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc listclasses app.apk | wc -l", "total class count"),
+                ("ddc listclasses app.apk serializer", "case-insensitive substring filter"),
+            ],
         },
     ),
     (
@@ -313,13 +331,16 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "decode AndroidManifest.xml into text XML",
             usage: "ddc manifest <APK> [options]",
-            args: &[],
+            args: &[
+            ],
             opts: &[
-                (
-                    "-c, --component KIND",
-                    "emit one component group only (launcher|activity|service|receiver|provider)",
-                ),
+                ("‑c, --component KIND", "emit one component group only (launcher|activity|service|receiver|provider)"),
                 OUT_FILE_EN,
+            ],
+            examples: &[
+                ("ddc manifest app.apk", "the whole manifest as text XML"),
+                ("ddc manifest app.apk --component launcher", "the launcher activity's intent filters"),
+                ("ddc manifest app.apk -o manifest.xml", "save to a file"),
             ],
         },
     ),
@@ -328,8 +349,14 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "print the package and launcher activity, verified against the dex",
             usage: "ddc mainactivity <APK> [options]",
-            args: &[],
-            opts: &[DEX_EN],
+            args: &[
+            ],
+            opts: &[
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc mainactivity app.apk", "package + launcher activity, verified in the dex"),
+            ],
         },
     ),
     (
@@ -337,12 +364,16 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "list archive entries, or dump one entry's content",
             usage: "ddc res <APK> [ENTRY] [options]",
-            args: &[("ENTRY", "archive entry to dump; without it, all entries are listed")],
+            args: &[
+                ("ENTRY", "archive entry to dump; without it, all entries are listed"),
+            ],
             opts: &[
-                (
-                    "-o, --output FILE",
-                    "write the entry's raw bytes (binary XML stays binary; stdout decodes it)",
-                ),
+                ("-o, --output FILE", "write the entry's raw bytes (binary XML stays binary; stdout decodes it)"),
+            ],
+            examples: &[
+                ("ddc res app.apk | head -40", "list archive entries"),
+                ("ddc res app.apk AndroidManifest.xml", "decode one entry (binary XML becomes text)"),
+                ("ddc res app.apk resources.arsc -o arsc.bin", "save one entry's raw bytes"),
             ],
         },
     ),
@@ -351,17 +382,16 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "the string table, with the methods referencing each string",
             usage: "ddc strings <INPUT> [options]",
-            args: &[],
+            args: &[
+            ],
             opts: &[
-                (
-                    "-f, --filter TEXT",
-                    "keep strings containing TEXT (case-insensitive)",
-                ),
-                (
-                    "--with-locations",
-                    "map each string to its referencing methods",
-                ),
+                ("-f, --filter TEXT", "keep strings containing TEXT (case-insensitive)"),
+                ("--with-locations", "map each string to its referencing methods"),
                 DEX_EN,
+            ],
+            examples: &[
+                ("ddc strings app.apk -f token", "strings containing \"token\""),
+                ("ddc strings app.apk -f api_key --with-locations", "each hit mapped to its referencing methods"),
             ],
         },
     ),
@@ -375,13 +405,15 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("QUERY", "the string, type, method, or field name to resolve"),
             ],
             opts: &[
-                (
-                    "-C, --class FQCN",
-                    "owner class for method/field queries (exact unless --fuzzy-class)",
-                ),
+                ("-C, --class FQCN", "owner class for method/field queries (exact unless --fuzzy-class)"),
                 ("--fuzzy-class", "match the owner class fuzzily"),
                 OUT_FILE_EN,
                 DEX_EN,
+            ],
+            examples: &[
+                ("ddc findrefs app.apk string api_key", "every \"api_key\" string-literal site"),
+                ("ddc findrefs app.apk method onCreate --class android/app/Activity", "invoke sites of Activity.onCreate"),
+                ("ddc findrefs app.apk field CREATOR", "reads/writes of fields named CREATOR"),
             ],
         },
     ),
@@ -394,7 +426,13 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("NAME", "method name to search"),
                 ("FQCN", "optional owner class, narrows the search"),
             ],
-            opts: &[DEX_EN],
+            opts: &[
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc callers app.apk sendMessage", "methods invoking sendMessage"),
+                ("ddc callers app.apk onCreate android/app/Activity", "scope the callee to one owner class"),
+            ],
         },
     ),
     (
@@ -402,16 +440,20 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "method and field name search",
             usage: "ddc members <INPUT> [NAME] [options]",
-            args: &[("NAME", "name substring to search")],
+            args: &[
+                ("NAME", "name substring to search"),
+            ],
             opts: &[
-                (
-                    "-C, --class FQCN",
-                    "restrict to one class (exact unless --fuzzy-class)",
-                ),
+                ("-C, --class FQCN", "restrict to one class (exact unless --fuzzy-class)"),
                 ("--fuzzy-class", "match the class fuzzily"),
                 ("--method", "methods only"),
                 ("--field", "fields only"),
                 DEX_EN,
+            ],
+            examples: &[
+                ("ddc members app.apk token", "methods/fields with \"token\" in the name"),
+                ("ddc members app.apk --class com.example.Foo", "every member of one class"),
+                ("ddc members app.apk onCreate --method", "method names only"),
             ],
         },
     ),
@@ -420,8 +462,15 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "supertypes (extends/implements) and subtypes of a class",
             usage: "ddc hierarchy <INPUT> <FQCN> [options]",
-            args: &[("FQCN", "class name, dotted or slashed")],
-            opts: &[DEX_EN],
+            args: &[
+                ("FQCN", "class name, dotted or slashed"),
+            ],
+            opts: &[
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc hierarchy app.apk androidx.fragment.app.FragmentActivity", "its supertypes and every subclass"),
+            ],
         },
     ),
     (
@@ -429,8 +478,16 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "largest methods by instruction count",
             usage: "ddc largest <INPUT> [options]",
-            args: &[],
-            opts: &[("-n N", "report the top N methods (default 20)"), DEX_EN],
+            args: &[
+            ],
+            opts: &[
+                ("-n N", "report the top N methods (default 20)"),
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc largest app.apk", "top 20 methods by instruction count (default)"),
+                ("ddc largest app.apk -n 50", "top 50"),
+            ],
         },
     ),
     (
@@ -438,8 +495,16 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "raw bytecode listing of a class or one method",
             usage: "ddc disasm <INPUT> <FQCN>[.<method>] [options]",
-            args: &[("FQCN[.<method>]", "dotted class name, optionally .method")],
-            opts: &[DEX_EN],
+            args: &[
+                ("FQCN[.<method>]", "dotted class name, optionally .method"),
+            ],
+            opts: &[
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc disasm app.apk com.example.Foo", "bytecode of every method in the class"),
+                ("ddc disasm app.apk com.example.Foo.toString", "one method name, all overloads"),
+            ],
         },
     ),
     (
@@ -451,7 +516,15 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("<INPUT>...", "one or more inputs, merged into one class pool"),
                 ("FQCN", "class name, dotted or slashed"),
             ],
-            opts: &[OUT_FILE_EN, DEX_EN],
+            opts: &[
+                OUT_FILE_EN,
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc getclass app.apk com.example.Foo", "one class with its nested classes, to stdout"),
+                ("ddc getclass app.apk com.example.Foo -o Foo.java --dex classes3", "pick the image, write a file"),
+                ("ddc getclass base.apk patch.dex com.example.Foo", "several inputs merge into one pool"),
+            ],
         },
     ),
     (
@@ -459,34 +532,42 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "decompile one method, all of its overloads",
             usage: "ddc getmethod <INPUT> <FQCN>.<method> [options]",
-            args: &[("FQCN.<method>", "dotted class name and method name")],
-            opts: &[OUT_FILE_EN, DEX_EN],
+            args: &[
+                ("FQCN.<method>", "dotted class name and method name"),
+            ],
+            opts: &[
+                OUT_FILE_EN,
+                DEX_EN,
+            ],
+            examples: &[
+                ("ddc getmethod app.apk com.example.Foo.toString", "one method, all overloads"),
+                ("ddc getmethod app.apk com.example.Foo.toString -o toString.java", "save to a file"),
+            ],
         },
     ),
     (
         "pkg",
         SubHelp {
-            desc: "decompile every class of one package",
+            desc: "decompile every class of one package, subpackages included",
             usage: "ddc pkg <INPUT> <PACKAGE> [options]",
-            args: &[("PACKAGE", "package name (omit with --app)")],
+            args: &[
+                ("PACKAGE", "package name (omit with --app)"),
+            ],
             opts: &[
-                (
-                    "--app",
-                    "take the package from AndroidManifest.xml instead",
-                ),
-                (
-                    "-o, --output DIR",
-                    "output root (default: <package>-out/)",
-                ),
-                (
-                    "-t, --threads N",
-                    "parallel workers (default: CPU count)",
-                ),
+                ("--app", "take the package from AndroidManifest.xml instead"),
+                ("-o, --output DIR", "output root (default: <package>-out/)"),
+                ("-t, --threads N", "parallel workers (default: CPU count)"),
                 DEX_EN,
+            ],
+            examples: &[
+                ("ddc pkg app.apk com.example.app", "that package AND every subpackage under it"),
+                ("ddc pkg app.apk com.example.app -o src/", "choose the output directory"),
+                ("ddc pkg app.apk --app -o own/", "the app's own package, skipping libraries"),
             ],
         },
     ),
 ];
+
 
 const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
     (
@@ -494,8 +575,15 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "App 上下文与逐镜像统计",
             usage: "ddc info <输入> [选项]",
-            args: &[],
-            opts: &[DEX_ZH],
+            args: &[
+            ],
+            opts: &[
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc info app.apk", "App 上下文与逐镜像类/方法/字段表"),
+                ("ddc info app.apk -d classes2", "只统计匹配的镜像"),
+            ],
         },
     ),
     (
@@ -503,8 +591,16 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "列出类名，可按模式过滤",
             usage: "ddc listclasses <输入> [PATTERN] [选项]",
-            args: &[("PATTERN", "大小写不敏感的子串过滤")],
-            opts: &[DEX_ZH],
+            args: &[
+                ("PATTERN", "大小写不敏感的子串过滤"),
+            ],
+            opts: &[
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc listclasses app.apk | wc -l", "类总数"),
+                ("ddc listclasses app.apk serializer", "大小写不敏感的子串过滤"),
+            ],
         },
     ),
     (
@@ -512,13 +608,16 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "将 AndroidManifest.xml 解码为文本 XML",
             usage: "ddc manifest <APK> [选项]",
-            args: &[],
+            args: &[
+            ],
             opts: &[
-                (
-                    "-c, --component KIND",
-                    "只输出一组组件（launcher|activity|service|receiver|provider）",
-                ),
+                ("-c, --component KIND", "只输出一组组件（launcher|activity|service|receiver|provider）"),
                 OUT_FILE_ZH,
+            ],
+            examples: &[
+                ("ddc manifest app.apk", "完整 manifest 文本 XML"),
+                ("ddc manifest app.apk --component launcher", "启动 Activity 的 intent-filter"),
+                ("ddc manifest app.apk -o manifest.xml", "保存到文件"),
             ],
         },
     ),
@@ -527,8 +626,14 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "输出包名与启动 Activity，并在 dex 中定位验证",
             usage: "ddc mainactivity <APK> [选项]",
-            args: &[],
-            opts: &[DEX_ZH],
+            args: &[
+            ],
+            opts: &[
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc mainactivity app.apk", "包名 + 启动 Activity（dex 内定位验证）"),
+            ],
         },
     ),
     (
@@ -536,12 +641,16 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "列出归档条目，或输出单个条目的内容",
             usage: "ddc res <APK> [ENTRY] [选项]",
-            args: &[("ENTRY", "要输出的归档条目；省略时列出全部条目")],
+            args: &[
+                ("ENTRY", "要输出的归档条目；省略时列出全部条目"),
+            ],
             opts: &[
-                (
-                    "-o, --output FILE",
-                    "写入条目的原始字节（二进制 XML 保持原样；stdout 输出为解码文本）",
-                ),
+                ("-o, --output FILE", "写入条目的原始字节（二进制 XML 保持原样；stdout 输出为解码文本）"),
+            ],
+            examples: &[
+                ("ddc res app.apk | head -40", "列出归档条目"),
+                ("ddc res app.apk AndroidManifest.xml", "输出单个条目（二进制 XML 解码为文本）"),
+                ("ddc res app.apk resources.arsc -o arsc.bin", "保存条目的原始字节"),
             ],
         },
     ),
@@ -550,17 +659,16 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "字符串表及引用各字符串的方法",
             usage: "ddc strings <输入> [选项]",
-            args: &[],
+            args: &[
+            ],
             opts: &[
-                (
-                    "-f, --filter TEXT",
-                    "只保留包含 TEXT 的字符串（大小写不敏感）",
-                ),
-                (
-                    "--with-locations",
-                    "将每个字符串映射到引用它的方法",
-                ),
+                ("-f, --filter TEXT", "只保留包含 TEXT 的字符串（大小写不敏感）"),
+                ("--with-locations", "将每个字符串映射到引用它的方法"),
                 DEX_ZH,
+            ],
+            examples: &[
+                ("ddc strings app.apk -f token", "包含 \"token\" 的字符串"),
+                ("ddc strings app.apk -f api_key --with-locations", "每个命中映射到引用它的方法"),
             ],
         },
     ),
@@ -574,13 +682,15 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 ("QUERY", "要解析的字符串/类型/方法/字段名"),
             ],
             opts: &[
-                (
-                    "-C, --class FQCN",
-                    "method/field 查询的所属类（默认精确，--fuzzy-class 改模糊）",
-                ),
+                ("-C, --class FQCN", "method/field 查询的所属类（默认精确，--fuzzy-class 改模糊）"),
                 ("--fuzzy-class", "所属类模糊匹配"),
                 OUT_FILE_ZH,
                 DEX_ZH,
+            ],
+            examples: &[
+                ("ddc findrefs app.apk string api_key", "每个 \"api_key\" 字符串字面量位点"),
+                ("ddc findrefs app.apk method onCreate --class android/app/Activity", "Activity.onCreate 的调用点"),
+                ("ddc findrefs app.apk field CREATOR", "名为 CREATOR 的字段读写"),
             ],
         },
     ),
@@ -593,7 +703,13 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 ("NAME", "要检索的方法名"),
                 ("FQCN", "可选的所属类，用于缩小范围"),
             ],
-            opts: &[DEX_ZH],
+            opts: &[
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc callers app.apk sendMessage", "调用 sendMessage 的方法"),
+                ("ddc callers app.apk onCreate android/app/Activity", "把被调方法限定到一个所属类"),
+            ],
         },
     ),
     (
@@ -601,16 +717,20 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "方法与字段名检索",
             usage: "ddc members <输入> [NAME] [选项]",
-            args: &[("NAME", "要检索的名字子串")],
+            args: &[
+                ("NAME", "要检索的名字子串"),
+            ],
             opts: &[
-                (
-                    "-C, --class FQCN",
-                    "限定单个类（默认精确，--fuzzy-class 改模糊）",
-                ),
+                ("-C, --class FQCN", "限定单个类（默认精确，--fuzzy-class 改模糊）"),
                 ("--fuzzy-class", "所属类模糊匹配"),
                 ("--method", "仅方法"),
                 ("--field", "仅字段"),
                 DEX_ZH,
+            ],
+            examples: &[
+                ("ddc members app.apk token", "名字含 \"token\" 的方法/字段"),
+                ("ddc members app.apk --class com.example.Foo", "单个类的全部成员"),
+                ("ddc members app.apk onCreate --method", "只看方法名"),
             ],
         },
     ),
@@ -619,8 +739,15 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "一个类的超类（extends/implements）与子类谱系",
             usage: "ddc hierarchy <输入> <FQCN> [选项]",
-            args: &[("FQCN", "类名，点分/斜杠均可")],
-            opts: &[DEX_ZH],
+            args: &[
+                ("FQCN", "类名，点分/斜杠均可"),
+            ],
+            opts: &[
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc hierarchy app.apk androidx.fragment.app.FragmentActivity", "其超类与全部子类"),
+            ],
         },
     ),
     (
@@ -628,8 +755,16 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "按指令数排序的最大方法",
             usage: "ddc largest <输入> [选项]",
-            args: &[],
-            opts: &[("-n N", "输出前 N 个方法（默认 20）"), DEX_ZH],
+            args: &[
+            ],
+            opts: &[
+                ("-n N", "输出前 N 个方法（默认 20）"),
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc largest app.apk", "按指令数的前 20 个方法（默认）"),
+                ("ddc largest app.apk -n 50", "前 50 个"),
+            ],
         },
     ),
     (
@@ -637,8 +772,16 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "一个类或单个方法的原始字节码清单",
             usage: "ddc disasm <输入> <FQCN>[.<方法>] [选项]",
-            args: &[("FQCN[.<方法>]", "点分类名，可选 .方法")],
-            opts: &[DEX_ZH],
+            args: &[
+                ("FQCN[.<方法>]", "点分类名，可选 .方法"),
+            ],
+            opts: &[
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc disasm app.apk com.example.Foo", "类内每个方法的字节码"),
+                ("ddc disasm app.apk com.example.Foo.toString", "单个方法名，含全部重载"),
+            ],
         },
     ),
     (
@@ -650,7 +793,15 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 ("<输入>...", "一个或多个输入，合并为一个类池"),
                 ("FQCN", "类名，点分/斜杠均可"),
             ],
-            opts: &[OUT_FILE_ZH, DEX_ZH],
+            opts: &[
+                OUT_FILE_ZH,
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc getclass app.apk com.example.Foo", "单类连同嵌套类，输出到 stdout"),
+                ("ddc getclass app.apk com.example.Foo -o Foo.java --dex classes3", "指定镜像并写入文件"),
+                ("ddc getclass base.apk patch.dex com.example.Foo", "多输入合并为一个池"),
+            ],
         },
     ),
     (
@@ -658,34 +809,42 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
         SubHelp {
             desc: "反编译单个方法，含其全部重载",
             usage: "ddc getmethod <输入> <FQCN>.<方法> [选项]",
-            args: &[("FQCN.<方法>", "点分类名与方法名")],
-            opts: &[OUT_FILE_ZH, DEX_ZH],
+            args: &[
+                ("FQCN.<方法>", "点分类名与方法名"),
+            ],
+            opts: &[
+                OUT_FILE_ZH,
+                DEX_ZH,
+            ],
+            examples: &[
+                ("ddc getmethod app.apk com.example.Foo.toString", "单个方法，含全部重载"),
+                ("ddc getmethod app.apk com.example.Foo.toString -o toString.java", "保存到文件"),
+            ],
         },
     ),
     (
         "pkg",
         SubHelp {
-            desc: "反编译一个包下的全部类",
+            desc: "反编译一个包下的全部类，子包一并包含",
             usage: "ddc pkg <输入> <包名> [选项]",
-            args: &[("包名", "包名（与 --app 同用时省略）")],
+            args: &[
+                ("包名", "包名（与 --app 同用时省略）"),
+            ],
             opts: &[
-                (
-                    "--app",
-                    "改用 AndroidManifest.xml 中的包名",
-                ),
-                (
-                    "-o, --output DIR",
-                    "输出根目录（默认：<包名>-out/）",
-                ),
-                (
-                    "-t, --threads N",
-                    "并行 worker 数（默认 CPU 数）",
-                ),
+                ("--app", "改用 AndroidManifest.xml 中的包名"),
+                ("-o, --output DIR", "输出根目录（默认：<包名>-out/）"),
+                ("-t, --threads N", "并行 worker 数（默认 CPU 数）"),
                 DEX_ZH,
+            ],
+            examples: &[
+                ("ddc pkg app.apk com.example.app", "该包与其下所有子包（含 a.b.c.d.e）"),
+                ("ddc pkg app.apk com.example.app -o src/", "自选输出目录"),
+                ("ddc pkg app.apk --app -o own/", "只反编译 App 自身包，跳过库"),
             ],
         },
     ),
 ];
+
 
 /// `ddc help <SUBCOMMAND>` / `ddc <SUBCOMMAND> --help`: the command's own
 /// signature. Spec columns are ASCII even in the Chinese table, so the
@@ -716,6 +875,14 @@ fn print_subcommand_help(cmd: &str) {
     let w = rows.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
     for (spec, d) in &rows {
         println!("  {spec:<w$}  {d}");
+    }
+    if !h.examples.is_empty() {
+        println!();
+        println!("{}", bi!("Examples:", "示例："));
+        for (line, note) in h.examples {
+            println!("  {line}");
+            println!("      {note}");
+        }
     }
 }
 

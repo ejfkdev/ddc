@@ -158,6 +158,8 @@ fn subcommand_help_and_error_routing() {
         assert!(out.contains("Arguments:"), "{}", out);
         assert!(out.contains("-o, --output FILE"), "{}", out);
         assert!(out.contains("-d, --dex NAME"), "{}", out);
+        // Each command's card carries worked examples.
+        assert!(out.contains("Examples:"), "{}", out);
     }
 
     // Unknown help topic: one error line, exit 2.

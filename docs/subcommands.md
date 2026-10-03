@@ -29,7 +29,7 @@ stdout output is clean (stderr silent); timing prints only with `-o`.
 | `ddc disasm <input> FQCN[.method]` | raw bytecode of a class/method (opcode + pc) | **0.04s** |
 | `ddc callers <input> NAME [FQCN]` | who invokes method NAME (rides the findrefs machinery) | ~0.5s |
 | `ddc getmethod <input> FQCN.method` | decompile ONE method — all overloads, sliced out of the class, provenance header kept | **0.03s** |
-| `ddc pkg <input> com.example.foo [-o DIR] [-t N]` | whole-package decompile through the full pipeline; `--app` takes the package from the manifest | 0.165s (Telegram tgnet, 1561 classes) |
+| `ddc pkg <input> com.example.foo [-o DIR] [-t N]` | whole-package decompile through the full pipeline (segment-boundary prefix: subpackages included); `--app` takes the package from the manifest | 0.165s (Telegram tgnet, 1561 classes) |
 | `ddc mainactivity <apk>` | package + MAIN/LAUNCHER activity from the manifest, verified against the dex images | **0.02s** |
 | `ddc res <apk> [entry] [-o FILE]` | list archive entries (XAPK inner APKs flattened); dump one: binary XML decoded through the AXML decoder, text as-is, binary saved via `-o` | **0.01s** |
 | (full run, for contrast) `ddc app.apk -o out/` | all 98,348 classes | 5.45s / 1.28GB |

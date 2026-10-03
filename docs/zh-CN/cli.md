@@ -156,7 +156,9 @@ DDC_LANG=en ddc -V        # zh 区域下强制英文
   后的类里切片 —— 出处头 + package 行 + 全部同名重载，去掉缩进。未命中
   时列出该类的可用方法名。裸类名回退为整类输出。
 - **`ddc pkg <输入> 包名 [-o 目录] [-t N] [--app]`** —— 整包反编译走完整
-  管线（默认输出：输入旁的 `<包名下划线>-pkg/`）。`""` 或 `.` 表示根
+  管线：包名按段边界前缀匹配，`com.example.app` 命中其下全部类，
+  含 `com.example.app.ui` 等子包（默认输出：输入旁的
+  `<包名下划线>-pkg/`）。`""` 或 `.` 表示根
   （含默认包）。`--app` 自动取 manifest 包名 —— 该包下没有类时（Telegram：
   manifest 写 `org.telegram.messenger.web`，代码在
   `org.telegram.messenger`）回退用 launcher 类所在的包，应用自身代码总

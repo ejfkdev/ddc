@@ -186,7 +186,9 @@ clean (timing prints only with `-o`).
   every matching overload, dedented. A miss lists the class's method
   names. A bare class name falls back to the whole class.
 - **`ddc pkg <input> PACKAGE [-o DIR] [-t N] [--app]`** — decompile a
-  whole package subtree through the full pipeline (default output:
+  whole package subtree through the full pipeline: the package name is
+  a segment-boundary prefix, so `com.example.app` matches every class
+  under it, subpackages like `com.example.app.ui` included (default output:
   `<package-with-underscores>-pkg/` next to the input). `""` or `.`
   means the root (default package included). `--app` takes the package
   from the manifest — and when that package has no classes (Telegram:
