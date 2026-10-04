@@ -289,17 +289,32 @@ fn dst_regs(kind: &InsnKind) -> Vec<u16> {
 /// final when no other read of the same register precedes its next WRITE
 /// (a write starts a new generation — the old value is dead there).
 pub(crate) fn compute_final_reads(
-    ins: &[Insn],
+    cfg: &crate::cfg::DexCfg,
 ) -> std::sync::Arc<jdc_core::FxHashSet<(u32, u16)>> {
     use jdc_core::FxHashMap as HashMap;
-    // reg → (pc, is_read) events, pc order (ins is already pc-sorted).
+    // reg → (pc, is_read) events in EXECUTION order, not pc order.
+    //
+    // pc order interleaves exception handlers into the normal flow:
+    // their move-exception definitions sat BETWEEN a protected block's
+    // read and the reads of the blocks that actually follow it, and the
+    // "next event is a write ⇒ final read" rule consumed allocation
+    // views at reads that still had live uses (weixin a03/j.get: the
+    // handler's `move-exception v0` at 0024 shadowed the iput read at
+    // 001c; the New view got consumed there, the create path's phi
+    // value became Undef and the method returned the stale pre-write
+    // read). Reverse postorder over NORMAL edges matches execution;
+    // exception-only and dead blocks are appended after — their own
+    // events still participate, they just no longer interrupt.
+    let order = cfg.rpo_order();
     let mut events: HashMap<u16, Vec<(u32, bool)>> = HashMap::default();
-    for i in ins {
-        for r in src_regs(&i.kind) {
-            events.entry(r).or_default().push((i.pc, true));
-        }
-        for r in dst_regs(&i.kind) {
-            events.entry(r).or_default().push((i.pc, false));
+    for &bid in &order {
+        for i in cfg.block_ins(&cfg.blocks[bid]) {
+            for r in src_regs(&i.kind) {
+                events.entry(r).or_default().push((i.pc, true));
+            }
+            for r in dst_regs(&i.kind) {
+                events.entry(r).or_default().push((i.pc, false));
+            }
         }
     }
     let mut out = jdc_core::FxHashSet::default();

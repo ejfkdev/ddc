@@ -262,6 +262,43 @@ impl DexCfg {
     }
 
     /// The block's instructions (slice of the linear decode stream).
+    /// Blocks in reverse postorder over NORMAL (successor) edges;
+    /// blocks unreachable that way — exception handlers, dead code —
+    /// appended afterwards, ordered by start pc. A deterministic
+    /// execution-order approximation: strictly better than pc order,
+    /// which interleaves handler bodies into the flow they interrupt
+    /// (compute_final_reads consumed allocation views at reads whose
+    /// real successors still read the register).
+    pub fn rpo_order(&self) -> Vec<usize> {
+        let n = self.blocks.len();
+        // Iterative postorder DFS over succ (entry first).
+        let mut seen = vec![false; n];
+        let mut post: Vec<usize> = Vec::new();
+        if n > 0 {
+            let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
+            seen[0] = true;
+            while let Some(top) = stack.last_mut() {
+                let (b, i) = *top;
+                if i < self.blocks[b].succ.len() {
+                    top.1 += 1;
+                    let s = self.blocks[b].succ[i];
+                    if s < n && !seen[s] {
+                        seen[s] = true;
+                        stack.push((s, 0));
+                    }
+                } else {
+                    post.push(b);
+                    stack.pop();
+                }
+            }
+        }
+        let mut order: Vec<usize> = post.into_iter().rev().collect();
+        // Unreached blocks (exception-handler entries, dead code) after.
+        let mut rest: Vec<usize> = (0..n).filter(|&b| !seen[b]).collect();
+        rest.sort_unstable_by_key(|&b| self.blocks[b].start);
+        order.extend(rest);
+        order
+    }
     pub fn block_ins(&self, b: &Block) -> &[Insn] {
         &self.insns[b.ins_lo..b.ins_hi]
     }

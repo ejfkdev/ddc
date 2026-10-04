@@ -87,7 +87,7 @@ pub fn decompile_method(
     // per-block computation mistook a block-tail read for the
     // generation's last read — cross-block alloc consumers minted
     // never-assigned int locals).
-    let method_final_reads = crate::lift::compute_final_reads(&cfg.insns);
+    let method_final_reads = crate::lift::compute_final_reads(&cfg);
     let n = cfg.blocks.len();
     let env = MethodEnv {
         pool,
@@ -778,7 +778,15 @@ pub fn decompile_method(
         let region = st.structure_method();
         let tw1 = std::time::Instant::now();
         let mut converter = Converter::with_precomputed_ref(&core_cfg, &results, &groups, &dom);
+        // The dump needs `region` AFTER convert consumed it — clone only
+        // then; the hot path pays nothing.
+        let dump_ir = std::env::var("DDC_DUMP_IR").ok().filter(|f| m.name.contains(f));
+        let saved_region = dump_ir.as_deref().map(|_| region.clone());
         let candidate = converter.convert(region);
+        if let (Some(_), Some(r)) = (dump_ir.as_deref(), saved_region) {
+            eprintln!("[region-dump] {}.{}\n{:#?}", class.name, m.name, r);
+            eprintln!("[stmt-dump] {}.{}\n{:#?}", class.name, m.name, candidate);
+        }
         let tw2 = std::time::Instant::now();
         if trace_on() {
             eprintln!(
