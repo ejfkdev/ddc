@@ -60,13 +60,11 @@ fn print_help_en() {
     println!("  ddc help [SUBCOMMAND]                 this help, or one command's");
     println!("  ddc version | -h | -V");
     println!();
-    println!("Language: DDC_LANG=zh|en overrides; otherwise the first of LC_ALL,");
-    println!("LC_MESSAGES, LANG, LANGUAGE decides (zh* selects Chinese, any other");
-    println!("language English). With no locale variable set — plain cmd.exe /");
-    println!("PowerShell — Windows follows the system UI language.");
+    println!("Language: DDC_LANG=zh|en forces; otherwise auto-detected from the");
+    println!("locale environment (on Windows: the system UI language).");
     println!();
     println!("Decompiler for Android DEX images: versions 035-041, multi-dex APKs,");
-    println!("XAPK/APKS/APKM containers, invoke-custom. Twenty-plus subcommands");
+    println!("XAPK/APKS/APKM containers, invoke-custom. Fifteen subcommands");
     println!("answer metadata queries (strings, cross-references, hierarchies,");
     println!("per-method disassembly) without a full decompile.");
     println!();
@@ -154,9 +152,6 @@ fn print_help_en() {
     println!("  ddc manifest app.apk --component launcher");
     println!("  ddc hierarchy app.apk androidx.fragment.app.FragmentActivity");
     println!("  ddc pkg app.apk --app -o own/        # the app's own code only");
-    println!();
-    println!("Full reference: docs/cli.md (English and 简体中文) at");
-    println!("https://github.com/ejfkdev/ddc");
 }
 
 fn print_help_zh() {
@@ -169,13 +164,11 @@ fn print_help_zh() {
     println!("  ddc help [子命令]                     本帮助，或单个子命令的说明");
     println!("  ddc version | -h | -V");
     println!();
-    println!("语言：DDC_LANG=zh|en 强制指定；否则按 LC_ALL、LC_MESSAGES、LANG、");
-    println!("LANGUAGE 中第一个有值的变量判定（zh* 选中文，其余语言选英文）。");
-    println!("环境变量全部缺省时（原生 cmd.exe / PowerShell 不导出区域变量），");
-    println!("Windows 按系统界面语言判定。");
+    println!("语言：DDC_LANG=zh|en 强制指定；否则按环境变量自动判定");
+    println!("（Windows：系统界面语言）。");
     println!();
     println!("Android DEX 镜像反编译器：支持版本 035-041、多 dex APK、");
-    println!("XAPK/APKS/APKM 容器、invoke-custom。二十余个子命令在不全量反编译的");
+    println!("XAPK/APKS/APKM 容器、invoke-custom。15 个子命令在不全量反编译的");
     println!("前提下回答元数据查询（字符串、交叉引用、继承谱、单方法反汇编）。");
     println!();
     println!("输入：.dex 文件、.apk/.jar/.zip 归档（classes.dex、classes2.dex、…）、");
@@ -257,8 +250,6 @@ fn print_help_zh() {
     println!("  ddc manifest app.apk --component launcher");
     println!("  ddc hierarchy app.apk androidx.fragment.app.FragmentActivity");
     println!("  ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码");
-    println!();
-    println!("完整参考：docs/cli.md（英文与简体中文）https://github.com/ejfkdev/ddc");
 }
 
 /// One subcommand's `ddc help <name>` card: description, usage

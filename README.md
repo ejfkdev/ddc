@@ -21,7 +21,7 @@ parses cleanly.
   files) passes `javac` with **zero syntax errors**; every class of
   a case-variant name pair (`X/Cua` vs `X/cua`) is preserved as
   its own file instead of the last one silently overwriting.
-- **Progressive decompilation** — 20+ query subcommands (strings,
+- **Progressive decompilation** — 15 query subcommands (strings,
   cross-references, hierarchies, manifest, resources, per-method
   decompiles) answer in milliseconds: query metadata first, decompile
   on demand, skip the full run entirely.
