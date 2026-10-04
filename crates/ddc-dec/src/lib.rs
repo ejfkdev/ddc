@@ -1898,7 +1898,16 @@ pub(crate) fn stats_rss(phase: &str) {
 }
 
 pub fn install_case_renames(pool: &DexPool) {
+    let dbg = std::env::var("DDC_DBG_REN").is_ok();
+    let mut tick = std::time::Instant::now();
+    let mut lap = |tag: &str| {
+        if dbg {
+            eprintln!("[ren] {:?} {}", tick.elapsed(), tag);
+            tick = std::time::Instant::now();
+        }
+    };
     let mut map = case_rename_map(pool);
+    lap("case_rename_map");
     crate::stats_rss("  case_rename_map");
     // Cross-package reference first segments (descriptor level). Lazy
     // (progressive-browse) pools skip the scan — materializing every
@@ -1917,14 +1926,20 @@ pub fn install_case_renames(pool: &DexPool) {
     // them before the parent rename left both rules minting the same
     // display (`a2` twice in weibo's AIDL families).
     crate::stats_rss("  ref_segments");
+    lap("ref_segments");
     pkg_leaf_shadow_renames(pool, &mut map);
+    lap("pkg_leaf_shadow");
     class_pkg_collision_renames(pool, &mut map);
+    lap("class_pkg_collision");
     obscuring_class_renames(pool, &mut map, &pkg_segs);
+    lap("obscuring");
     nested_collision_renames(pool, &mut map, &fam_segs);
+    lap("nested_collision");
     // LAST: lossy-sanitize collisions key on the display form every rule
     // above has already settled (`l.᩻ܶ` → `l/__.java`, 22,636 classes onto
     // 3 paths on bin.mt.plus — the silent-overwrite data loss).
     crate::stats_rss("  shadow+collision+obscuring+nested rules");
+    lap("rules");
     lossy_sanitize_renames(pool, &mut map);
     // Default-package relocation keys on the settled displays too (it
     // PREFIXES them with the synthetic package) — runs after every
@@ -1932,8 +1947,10 @@ pub fn install_case_renames(pool: &DexPool) {
     root_pkg_relocation(pool, &mut map);
     fw_shadow_relocation(pool, &mut map);
     crate::stats_rss("  lossy+root-pkg rules");
+    lap("lossy+root");
     jdc_core::rename::set_class_renames(map);
     crate::stats_rss("class-renames installed");
+    lap("set_class_renames");
     // Field-rename registry build and the access-widening image scan are
     // independent: both only READ the pool, they install into disjoint
     // statics (FIELD_RENAMES vs WIDEN), the WIDEN accessors are
@@ -1947,8 +1964,10 @@ pub fn install_case_renames(pool: &DexPool) {
             let _ = h.join();
         });
         crate::stats_rss("field-renames + widening installed");
+    lap("field+widen");
     } else {
         jdc_core::rename::set_field_renames(combined_field_renames(pool));
+        lap("field_renames(lazy)");
     }
 }
 
@@ -2331,14 +2350,24 @@ fn class_pkg_collision_renames(pool: &DexPool, map: &mut HashMap<String, String>
     // `z` as existing when any class lives at `z/a/b` (the weibo
     // `com.sina.weibo.z` interface collides with a subpackage-only
     // `z/` that has no directly-resident class).
-    let mut pkgs: jdc_core::FxHashSet<String> = jdc_core::FxHashSet::default();
+    // Borrowed slices: the owned set allocated a fresh String per
+    // ancestor prefix of every class (~600k allocations on weibo).
+    let mut pkgs: jdc_core::FxHashSet<&str> = jdc_core::FxHashSet::default();
     for n in &pool.order {
         let mut rest = n.as_str();
         while let Some(i) = rest.rfind('/') {
             rest = &rest[..i];
-            pkgs.insert(rest.to_string());
+            pkgs.insert(rest);
         }
     }
+    // Exact-class and minted-display sets make the clash checks O(1):
+    // the old `order.iter().any(starts_with(&cand))` scanned every name
+    // per candidate per k-step (weibo: the second quadratic of the
+    // single-class getclass path, ~1s) — and its prefix match also
+    // counted SIBLING classes (`a/b2` matching `a/b23`) that map to
+    // different files and never collide.
+    let taken: jdc_core::FxHashSet<&str> = pool.order.iter().map(|s| s.as_str()).collect();
+    let mut used: jdc_core::FxHashSet<String> = map.values().cloned().collect();
     for name in &pool.order {
         let Some((pkg, simple)) = name.rsplit_once('/') else {
             continue;
@@ -2348,17 +2377,18 @@ fn class_pkg_collision_renames(pool: &DexPool, map: &mut HashMap<String, String>
             // effect from their `$` tail.
             continue;
         }
-        if !pkgs.contains(name) || map.get(name).is_some_and(|v| v != name) {
+        if !pkgs.contains(name.as_str()) || map.get(name).is_some_and(|v| v != name) {
             continue; // no subpackage under it, or an earlier rule moved it
         }
         let mut k = 1u32;
         loop {
             k += 1;
             let cand = format!("{pkg}/{simple}{k}");
-            let clash = pkgs.contains(&cand)
-                || pool.order.iter().any(|n| n.starts_with(&cand))
-                || map.values().any(|v| *v == cand);
+            let clash = pkgs.contains(cand.as_str())
+                || taken.contains(cand.as_str())
+                || used.contains(&cand);
             if !clash {
+                used.insert(cand.clone());
                 map.insert(name.clone(), cand);
                 break;
             }
@@ -2374,7 +2404,19 @@ fn class_pkg_collision_renames(pool: &DexPool, map: &mut HashMap<String, String>
 /// carries declarations and references) makes the package the only
 /// thing the leaf name resolves to.
 fn pkg_leaf_shadow_renames(pool: &DexPool, map: &mut HashMap<String, String>) {
-    let taken: jdc_core::FxHashSet<String> = pool.order.iter().cloned().collect();
+    let taken: jdc_core::FxHashSet<&str> = pool.order.iter().map(|s| s.as_str()).collect();
+    let mut used: jdc_core::FxHashSet<String> = map.values().cloned().collect();
+    // Classes per package in ONE pass — the per-candidate
+    // `order.iter().filter(starts_with).count()` was a quadratic scan
+    // on obfuscated corpora (weibo: 2124 leaf-shadow candidates × 98k
+    // names ≈ 2×10⁸ memcmp — the dominant single-class getclass cost,
+    // and paid again by every full run).
+    let mut under_pkg: jdc_core::FxHashMap<&str, usize> = jdc_core::FxHashMap::default();
+    for n in &pool.order {
+        if let Some(i) = n.rfind('/') {
+            *under_pkg.entry(&n[..i]).or_default() += 1;
+        }
+    }
     for name in &pool.order {
         let Some((pkg, simple)) = name.rsplit_once('/') else {
             continue;
@@ -2388,12 +2430,7 @@ fn pkg_leaf_shadow_renames(pool: &DexPool, map: &mut HashMap<String, String>) {
         if simple != leaf {
             continue;
         }
-        let prefix = format!("{pkg}/");
-        let siblings = pool
-            .order
-            .iter()
-            .filter(|n| n.starts_with(&prefix) && **n != *name)
-            .count();
+        let siblings = under_pkg.get(pkg).copied().unwrap_or(0).saturating_sub(1);
         if siblings == 0 || map.get(name).is_some_and(|v| v != name) {
             continue; // already renamed by an earlier rule; identity anchors are fine to overwrite
         }
@@ -2401,7 +2438,8 @@ fn pkg_leaf_shadow_renames(pool: &DexPool, map: &mut HashMap<String, String>) {
         loop {
             k += 1;
             let cand = format!("{pkg}/{simple}{k}");
-            if !taken.contains(&cand) && !map.values().any(|v| *v == cand) {
+            if !taken.contains(cand.as_str()) && !used.contains(&cand) {
+                used.insert(cand.clone());
                 map.insert(name.clone(), cand);
                 break;
             }
@@ -2608,9 +2646,20 @@ fn member_collision_renames(
     // cannot-find). Keyed on the POST-rename display (what refs render),
     // covering each class's own display too.
     let root_segs = pool.root_pkg_segs();
+    // Lazy single-class pools build the global tables from MATERIALIZED
+    // classes only (the target + its on-demand family): unmateralized
+    // siblings matter to whole-program javac, which a one-class stdout
+    // dump does not have — the same reduced-fidelity contract the
+    // obscuring rules already document for lazy pools. The walk over
+    // every registered name was the dominant field-rename cost of
+    // getclass (~0.5s on weibo for one class).
+    let lazy = !pool_majority_materialized(pool);
     let mut pkg_displays: jdc_core::FxHashMap<&str, jdc_core::FxHashSet<String>> =
         jdc_core::FxHashMap::default();
     for n in &pool.order {
+        if lazy && pool.get_if_materialized(n).is_none() {
+            continue;
+        }
         let renamed = crate::apply_class_rename(n);
         let (pkg, simple) = match renamed.rfind('/') {
             Some(i) => (renamed[..i].to_string(), renamed[i + 1..].to_string()),
@@ -2628,6 +2677,9 @@ fn member_collision_renames(
     // hierarchy class as owner).
     let mut subs: jdc_core::FxHashMap<&str, Vec<&str>> = jdc_core::FxHashMap::default();
     for n in &pool.order {
+        if lazy && pool.get_if_materialized(n).is_none() {
+            continue;
+        }
         // EVERY `$` boundary: each prefix is an owner and the segment
         // after it one of its direct member-type tails. The old
         // first-segment-only map left NESTED owners (ta8/t$a, androidx
@@ -3741,9 +3793,17 @@ fn suffix_unique(base: &str, taken: &mut jdc_core::FxHashSet<String>) -> String 
 fn combined_field_renames(
     pool: &DexPool,
 ) -> HashMap<std::sync::Arc<str>, Vec<jdc_core::rename::FieldRename>> {
+    let t = std::time::Instant::now();
     let mut base = member_collision_renames(pool);
+    if std::env::var("DDC_DBG_REN").is_ok() {
+        eprintln!("[ren] {:?} member_collision_renames", t.elapsed());
+    }
+    let t = std::time::Instant::now();
     crate::stats_rss("  member_collision_renames");
     let extra = field_deshadow_renames(pool);
+    if std::env::var("DDC_DBG_REN").is_ok() {
+        eprintln!("[ren] {:?} field_deshadow_renames", t.elapsed());
+    }
     let mut merged = 0usize;
     for (owner, v) in extra {
         let e = base.entry(owner).or_default();
