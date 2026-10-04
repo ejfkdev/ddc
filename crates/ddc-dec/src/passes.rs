@@ -3507,7 +3507,7 @@ pub fn forward_single_use(s: &mut Stmt, _vt: &VarTable) {
     if !single.iter().any(|&b| b) {
         return;
     }
-    let pure: Vec<bool> = (0..n_vars)
+    let mut pure: Vec<bool> = (0..n_vars)
         .map(|v| {
             single[v]
                 && values
@@ -3517,7 +3517,102 @@ pub fn forward_single_use(s: &mut Stmt, _vt: &VarTable) {
                     .unwrap_or(false)
         })
         .collect();
-    let impure: Vec<bool> = (0..n_vars).map(|v| single[v] && !pure[v]).collect();
+    let mut impure: Vec<bool> = (0..n_vars).map(|v| single[v] && !pure[v]).collect();
+
+    // A Field read is pure (no side effect) but NOT position-independent:
+    // re-rendering it at the use site reads whatever the field holds
+    // THERE. d8's `v = !this.f; this.f = true;` lifts as iget→xor→iput;
+    // the lifter materializes the read at its defining pc (force_mat,
+    // lift.rs) precisely so the xor sees the OLD value — and this pass
+    // used to re-inline that temp past the write, resurrecting the
+    // stale read (weibo Transmitter.exchangeMessageDone rendered
+    // `this.f = true; v = !this.f;`). Block the inline-when-anywhere
+    // path for a value whose field is written between the def and the
+    // single use (statement pre-order positions); such candidates fall
+    // through to the adjacent-only impure path, which cannot cross
+    // statements.
+    {
+        type FieldKey = (std::sync::Arc<str>, std::sync::Arc<str>, bool);
+        let mut field_writes: jdc_core::FxHashMap<FieldKey, Vec<usize>> =
+            jdc_core::FxHashMap::default();
+        let mut def_pos: Vec<usize> = vec![usize::MAX; n_vars];
+        let mut use_pos: Vec<usize> = vec![usize::MAX; n_vars];
+        let mut pos = 0usize;
+        walk_all(s, &mut |st| {
+            let here = pos;
+            pos += 1;
+            for e in stmt_read_exprs(st) {
+                visit_exprs(e, &mut |x| {
+                    if let Expr::Local { var, .. } = x {
+                        let v = *var as usize;
+                        if v < use_pos.len() && use_pos[v] == usize::MAX {
+                            use_pos[v] = here;
+                        }
+                    }
+                });
+            }
+            match st {
+                Stmt::LocalDef { var, .. } => {
+                    let v = *var as usize;
+                    if v < def_pos.len() {
+                        def_pos[v] = here;
+                    }
+                }
+                Stmt::ExprStmt(Expr::Assign { target, .. }) => match &**target {
+                    Expr::Local { var, .. } => {
+                        let v = *var as usize;
+                        if v < def_pos.len() {
+                            def_pos[v] = here;
+                        }
+                    }
+                    Expr::Field { cls, name, is_static, .. } => {
+                        field_writes
+                            .entry((cls.clone(), name.clone(), *is_static))
+                            .or_default()
+                            .push(here);
+                    }
+                    _ => {}
+                },
+                Stmt::ExprStmt(Expr::PreIncDec { e, .. } | Expr::PostIncDec { e, .. }) => {
+                    if let Expr::Field { cls, name, is_static, .. } = &**e {
+                        field_writes
+                            .entry((cls.clone(), name.clone(), *is_static))
+                            .or_default()
+                            .push(here);
+                    }
+                }
+                _ => {}
+            }
+        });
+        let mut hazard = vec![false; n_vars];
+        for v in 0..n_vars {
+            if !pure[v] {
+                continue;
+            }
+            let Some(Some(val)) = values.get(v).map(|o| o.as_ref()) else {
+                continue;
+            };
+            let (d, u) = (def_pos[v], use_pos[v]);
+            if d == usize::MAX || u == usize::MAX || u <= d {
+                continue;
+            }
+            visit_exprs(val, &mut |x| {
+                if let Expr::Field { cls, name, is_static, .. } = x {
+                    if let Some(ws) = field_writes.get(&(cls.clone(), name.clone(), *is_static)) {
+                        if ws.iter().any(|w| *w > d && *w < u) {
+                            hazard[v] = true;
+                        }
+                    }
+                }
+            });
+        }
+        for v in 0..n_vars {
+            if hazard[v] {
+                pure[v] = false;
+                impure[v] = single[v];
+            }
+        }
+    }
 
     // 1. Pure values: inline anywhere.
     if pure.iter().any(|&b| b) {
@@ -3549,66 +3644,72 @@ pub fn forward_single_use(s: &mut Stmt, _vt: &VarTable) {
     }
 }
 
+/// The expression payloads a statement READS — the statement's own node
+/// only (walk_all visits nested statements separately). Assignment
+/// targets are writes (a non-local target still reads its owner/index
+/// subtree); shared by count_reads and the position scan in
+/// forward_single_use so the two can never drift apart.
+fn stmt_read_exprs(st: &Stmt) -> Vec<&Expr> {
+    match st {
+        Stmt::ExprStmt(Expr::Assign { target, value, .. }) => {
+            let mut v: Vec<&Expr> = vec![value];
+            if !matches!(&**target, Expr::Local { .. }) {
+                v.push(target);
+            }
+            v
+        }
+        // `v++` writes v — not a read (a compound `a[i]++` still reads
+        // its owner/index subtree).
+        Stmt::ExprStmt(e @ (Expr::PreIncDec { .. } | Expr::PostIncDec { .. })) => {
+            let inner = match e {
+                Expr::PreIncDec { e, .. } | Expr::PostIncDec { e, .. } => e,
+                _ => unreachable!(),
+            };
+            if matches!(**inner, Expr::Local { .. }) {
+                Vec::new()
+            } else {
+                vec![e]
+            }
+        }
+        Stmt::ExprStmt(e) | Stmt::Throw(e) | Stmt::MonitorEnter(e) | Stmt::MonitorExit(e) => {
+            vec![e]
+        }
+        Stmt::Return(Some(e)) => vec![e],
+        Stmt::LocalDef { init: Some(e), .. } => vec![e],
+        Stmt::If { cond, .. } => vec![cond],
+        Stmt::While { cond, .. } => vec![cond],
+        Stmt::DoWhile { cond, .. } => vec![cond],
+        // Read sites that are NOT statement children (walk_all recurses
+        // into bodies but these payloads are expressions on the node
+        // itself). Omitting them under-counts reads, which would let
+        // drop_dead_locals over-prune a var whose only use is a switch
+        // selector / loop condition / lock / iterable.
+        Stmt::Switch { selector, .. } => vec![selector],
+        Stmt::ForEach { iterable, .. } => vec![iterable],
+        Stmt::Synchronized { lock, .. } => vec![lock],
+        Stmt::For { cond, update, .. } => {
+            let mut v: Vec<&Expr> = Vec::with_capacity(update.len() + 1);
+            if let Some(c) = cond {
+                v.push(c);
+            }
+            v.extend(update.iter());
+            v
+        }
+        Stmt::Assert { cond, msg } => {
+            let mut v: Vec<&Expr> = vec![cond];
+            if let Some(m) = msg {
+                v.push(m);
+            }
+            v
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Count READS of variables (assignment targets excluded).
 fn count_reads(s: &Stmt, out: &mut Vec<usize>) {
     walk_all(s, &mut |st| {
-        let exprs: Vec<&Expr> = match st {
-            // Assign must match BEFORE the generic ExprStmt arm (the
-            // assignment target is a write, not a read).
-            Stmt::ExprStmt(Expr::Assign { target, value, .. }) => {
-                let mut v: Vec<&Expr> = vec![value];
-                if !matches!(&**target, Expr::Local { .. }) {
-                    v.push(target);
-                }
-                v
-            }
-            // `v++` writes v — not a read (a compound `a[i]++` still
-            // reads its owner/index subtree).
-            Stmt::ExprStmt(e @ (Expr::PreIncDec { .. } | Expr::PostIncDec { .. })) => {
-                let inner = match e {
-                    Expr::PreIncDec { e, .. } | Expr::PostIncDec { e, .. } => e,
-                    _ => unreachable!(),
-                };
-                if matches!(**inner, Expr::Local { .. }) {
-                    Vec::new()
-                } else {
-                    vec![e]
-                }
-            }
-            Stmt::ExprStmt(e) | Stmt::Throw(e) | Stmt::MonitorEnter(e) | Stmt::MonitorExit(e) => {
-                vec![e]
-            }
-            Stmt::Return(Some(e)) => vec![e],
-            Stmt::LocalDef { init: Some(e), .. } => vec![e],
-            Stmt::If { cond, .. } => vec![cond],
-            Stmt::While { cond, .. } => vec![cond],
-            Stmt::DoWhile { cond, .. } => vec![cond],
-            // Read sites that are NOT statement children (walk_all recurses
-            // into bodies but these payloads are expressions on the node
-            // itself). Omitting them under-counts reads, which would let
-            // drop_dead_locals over-prune a var whose only use is a switch
-            // selector / loop condition / lock / iterable.
-            Stmt::Switch { selector, .. } => vec![selector],
-            Stmt::ForEach { iterable, .. } => vec![iterable],
-            Stmt::Synchronized { lock, .. } => vec![lock],
-            Stmt::For { cond, update, .. } => {
-                let mut v: Vec<&Expr> = Vec::with_capacity(update.len() + 1);
-                if let Some(c) = cond {
-                    v.push(c);
-                }
-                v.extend(update.iter());
-                v
-            }
-            Stmt::Assert { cond, msg } => {
-                let mut v: Vec<&Expr> = vec![cond];
-                if let Some(m) = msg {
-                    v.push(m);
-                }
-                v
-            }
-            _ => Vec::new(),
-        };
-        for e in exprs {
+        for e in stmt_read_exprs(st) {
             visit_exprs(e, &mut |x| {
                 if let Expr::Local { var, .. } = x {
                     grow_to(out, *var);
@@ -3618,6 +3719,7 @@ fn count_reads(s: &Stmt, out: &mut Vec<usize>) {
         }
     });
 }
+
 
 fn drop_defs(s: &mut Stmt, vars: &[bool]) {
     walk_mut_deep(s, &mut |st| {
