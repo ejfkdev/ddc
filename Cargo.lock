@@ -309,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "ddc-cli"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "ddc-dec",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "ddc-dec"
-version = "0.1.25"
+version = "0.1.26"
 dependencies = [
  "anyhow",
  "ddc-dex",
