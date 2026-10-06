@@ -22,6 +22,7 @@ mod findrefs;
 mod inputs;
 mod lang;
 mod manifest;
+mod mode_help;
 mod xyz_api;
 
 use inputs::{
@@ -140,11 +141,17 @@ fn print_help_en() {
     println!("  json | jsonl     the typed reports the HTTP and MCP frontends serve");
     println!();
     println!("HTTP & MCP (built in, via github.com/ejfkdev/xyz-rust):");
-    println!("  ddc serve --addr :8080     10 REST routes + GET /openapi.json +");
-    println!("                             a streamable MCP endpoint on the same port");
-    println!("  ddc mcp stdio              the same commands as MCP tools, with");
-    println!("                             input and output schemas (ddc.getclass, ...)");
-    println!("  ddc mcp http               streamable-HTTP MCP (loopback host only)");
+    println!("  ddc serve --addr :8080     one process, three fronts on one port:");
+    println!("                             10 REST routes, GET /openapi.json,");
+    println!("                             GET /healthz, and the streamable MCP");
+    println!("                             endpoint at /mcp — point an MCP client");
+    println!("                             at http://127.0.0.1:8080/mcp");
+    println!("  ddc mcp stdio              MCP over stdin/stdout, no network — the");
+    println!("                             agent's subprocess (10 tools with input");
+    println!("                             and output schemas: ddc.getclass, ...)");
+    println!("  ddc mcp http               MCP-only streamable server (loopback host");
+    println!("                             by default); serve serves the same /mcp");
+    println!("  `ddc help serve` / `ddc help mcp` document every flag and endpoint.");
     println!();
     println!("Exit status: 0 success; 1 some classes failed; 2 usage error.");
     println!();
@@ -254,11 +261,16 @@ fn print_help_zh() {
     println!("  json | jsonl     HTTP 与 MCP 前端服务的同构类型数据");
     println!();
     println!("HTTP 与 MCP（内置，基于 github.com/ejfkdev/xyz-rust）：");
-    println!("  ddc serve --addr :8080     10 条 REST 路由 + GET /openapi.json，同端口");
-    println!("                             还有流式 MCP 端点");
-    println!("  ddc mcp stdio              同一批命令作为 MCP 工具（含输入/输出");
-    println!("                             schema：ddc.getclass、ddc.findrefs、…）");
-    println!("  ddc mcp http               流式 HTTP MCP（仅回环 Host）");
+    println!("  ddc serve --addr :8080     一个进程、一个端口服务三个前端：10 条");
+    println!("                             REST 路由、GET /openapi.json、GET");
+    println!("                             /healthz，以及流式 MCP 端点 /mcp —— 把");
+    println!("                             MCP 客户端指向 http://127.0.0.1:8080/mcp");
+    println!("  ddc mcp stdio              走 stdin/stdout 的 MCP，不占网络 —— Agent");
+    println!("                             的子进程（10 个工具含输入/输出 schema：");
+    println!("                             ddc.getclass、ddc.findrefs、…）");
+    println!("  ddc mcp http               纯 MCP 流式服务器（默认仅回环 Host）；");
+    println!("                             serve 的 /mcp 是同一协议");
+    println!("  `ddc help serve` / `ddc help mcp` 给出全部旗标与端点说明。");
     println!();
     println!("退出码：0 成功；1 部分类失败；2 用法错误。");
     println!();
@@ -1084,7 +1096,9 @@ fn main() {
             match args.get(1).map(String::as_str) {
                 // `ddc help <subcommand>`: that command's own signature.
                 Some(topic) if !topic.starts_with('-') => {
-                    if is_subcommand(topic) {
+                    if topic == "serve" || topic == "mcp" {
+                        mode_help::print_mode_help(topic);
+                    } else if is_subcommand(topic) {
                         print_subcommand_help(topic);
                     } else {
                         eprintln!(
@@ -1116,6 +1130,14 @@ fn main() {
     // parser owns them).
     if let Some(first) = args.first() {
         if first == "serve" || first == "mcp" {
+            // `ddc serve -h` / `ddc mcp -h`: the mode's own card. Printed
+            // here because the xyz serve parser has no -h arm (it would
+            // start the server and block); `ddc help serve|help mcp`
+            // prints the same card.
+            if args[1..].iter().any(|a| a == "-h" || a == "--help") {
+                mode_help::print_mode_help(first);
+                return;
+            }
             let code = crate::xyz_api::run(args);
             std::process::exit(code);
         }
