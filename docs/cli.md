@@ -6,11 +6,13 @@ Everything `ddc --help` tells you, in more detail: invocation modes,
 every option's semantics, every subcommand's output format and behavior.
 The binary's help is the quick card; this is the manual.
 
-Two invocation modes:
+Four invocation shapes:
 
 ```
 ddc [OPTIONS] <INPUT>... [OUTPUT]      # full decompile
 ddc <SUBCOMMAND> [ARGS...]             # progressive analysis (query)
+ddc serve|http [--addr HOST:PORT]      # REST + OpenAPI (+ /mcp on serve)
+ddc mcp stdio|http                     # MCP tool server
 ```
 
 ## Language
@@ -77,7 +79,53 @@ while `ddc a.dex dump/` treats a real dex directory as an input.
 version` do the same as `-h` / `-V`; `ddc` with no arguments at all
 prints the help (exit 0). `ddc help <SUBCOMMAND>` and
 `ddc <SUBCOMMAND> --help` print that command's own arguments and
-options instead of the main help.
+options instead of the main help; `ddc help serve|http|mcp` (or
+`ddc serve -h`, …) document each server mode's flags, endpoints and
+worked connection examples.
+
+### Output formats (`--format` on every query command)
+
+`auto` (the default) picks by stdout: a terminal gets the human
+rendering, a pipe gets the stable text form scripts have always
+parsed.
+
+| Format | Renders |
+|---|---|
+| `auto` | table on a terminal, text when piped |
+| `text` | the fixed-width column format (legacy, stable) |
+| `table` | aligned tables with header rules |
+| `markdown` / `md` | pipe tables; source-shaped reports (`getclass`, `disasm`, `manifest`) wrap in fenced code blocks |
+| `json` | the typed reports the HTTP/MCP frontends serve |
+| `jsonl` | the same, one compact line per element |
+
+### Server modes (HTTP REST, OpenAPI, MCP)
+
+One process, three fronts — every query command defined once via
+[xyz-rust](https://github.com/ejfkdev/xyz-rust):
+
+| Command | Serves | `/mcp` |
+|---|---|---|
+| `ddc serve [--addr :8080]` | 10 REST routes + `GET /openapi.json` + `GET /healthz` | streamable MCP endpoint |
+| `ddc http [--addr :8080]` | REST + OpenAPI only | not mounted (404) |
+| `ddc mcp stdio` | MCP over stdin/stdout (agent subprocess) | — |
+| `ddc mcp http` | MCP-only streamable server | — |
+
+Shared flags: `--addr`, `--bearer tok1,tok2` (Authorization: Bearer
+on REST and `/mcp`), `--timeout`, `--cors`, `--tls-cert` +
+`--tls-key` (HTTPS), `--default k=v` (channel defaults). MCP modes
+add `--versions` (spec revisions), `--stateless`, `--session-timeout`,
+`--name`, `--server-version`.
+
+An MCP client connects to `http://<addr>/mcp` when serve is running
+(the endpoint answers plain curl GETs with 406 — it speaks the MCP
+streamable protocol); REST examples:
+
+```bash
+ddc serve --addr 127.0.0.1:8080
+curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'
+curl '127.0.0.1:8080/findrefs?input=app.apk&kind=string&query=token'
+# Claude Desktop: mcpServers → { ddc: { command: ddc, args: [mcp, stdio] } }
+```
 
 **Provenance header** (unless `--no-comments`):
 

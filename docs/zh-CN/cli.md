@@ -5,11 +5,13 @@
 `ddc --help` 的全部内容，外加更详细的说明：调用模式、每个选项的语义、
 每个子命令的输出格式与行为。`--help` 是速查卡，这里是手册。
 
-两种调用模式：
+四种调用形态：
 
 ```
 ddc [选项] <输入>... [输出]             # 全量反编译
 ddc <子命令> [参数...]                  # 渐进式分析（查询）
+ddc serve|http [--addr 主机:端口]       # REST + OpenAPI（serve 另挂 /mcp）
+ddc mcp stdio|http                      # MCP 工具服务器
 ```
 
 ## 语言
@@ -69,6 +71,51 @@ DDC_LANG=en ddc -V        # zh 区域下强制英文
 `-h` / `-V` 等价；完全不带参数的 `ddc` 直接打印帮助（退出码 0）。
 `ddc help <子命令>` 与 `ddc <子命令> --help` 打印该命令自己的参数与
 选项，而非主帮助。
+
+`ddc help serve|http|mcp`（或 `ddc serve -h` 等）给出每个服务器模式的
+旗标、端点与连接示例。
+
+### 输出格式（每个查询命令的 `--format`）
+
+`auto`（默认）按 stdout 分流：终端取人类渲染，管道取脚本一直在解析的
+稳定文本。
+
+| 格式 | 渲染 |
+|---|---|
+| `auto` | 终端表格、管道文本 |
+| `text` | 固定宽度列格式（传统、稳定） |
+| `table` | 对齐表格 + 表头分隔线 |
+| `markdown` / `md` | 管道表格；源码形报告（`getclass`、`disasm`、`manifest`）围栏代码块 |
+| `json` | HTTP/MCP 前端服务的同构类型数据 |
+| `jsonl` | 同上，逐元素紧凑一行 |
+
+### 服务器模式（HTTP REST、OpenAPI、MCP）
+
+一个进程三个前端 —— 每个查询命令基于
+[xyz-rust](https://github.com/ejfkdev/xyz-rust) 一次定义：
+
+| 命令 | 服务内容 | `/mcp` |
+|---|---|---|
+| `ddc serve [--addr :8080]` | 10 条 REST 路由 + `GET /openapi.json` + `GET /healthz` | 流式 MCP 端点 |
+| `ddc http [--addr :8080]` | 仅 REST + OpenAPI | 不挂载（404） |
+| `ddc mcp stdio` | 走 stdin/stdout 的 MCP（Agent 子进程） | — |
+| `ddc mcp http` | 纯 MCP 流式服务器 | — |
+
+共享旗标：`--addr`、`--bearer 令牌1,令牌2`（REST 与 `/mcp` 的
+Authorization: Bearer）、`--timeout`、`--cors`、`--tls-cert` +
+`--tls-key`（HTTPS）、`--default k=v`（通道默认值）。MCP 模式另有
+`--versions`（协议修订）、`--stateless`、`--session-timeout`、`--name`、
+`--server-version`。
+
+serve 运行时 MCP 客户端连接 `http://<地址>/mcp`（该端点对普通 curl
+GET 返回 406 —— 它讲 MCP 流式协议）；REST 示例：
+
+```bash
+ddc serve --addr 127.0.0.1:8080
+curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'
+curl '127.0.0.1:8080/findrefs?input=app.apk&kind=string&query=token'
+# Claude Desktop：mcpServers → { ddc: { command: ddc, args: [mcp, stdio] } }
+```
 
 **出处注释头**（`--no-comments` 关闭）：
 

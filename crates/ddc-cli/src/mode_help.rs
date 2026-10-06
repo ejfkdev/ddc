@@ -34,8 +34,18 @@ fn print_serve_help_en() {
     println!("Examples:");
     println!("  ddc serve --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!();
+    println!("  # bearer auth + TLS + CORS, one process:");
+    println!("  ddc serve --addr 0.0.0.0:8443 --bearer tok1,tok2 \\");
+    println!("      --tls-cert cert.pem --tls-key key.pem --cors 'https://app.example.com'");
+    println!("  curl -H 'Authorization: Bearer tok1' \\");
+    println!("      'https://host:8443/findrefs?input=app.apk&kind=string&query=token'");
+    println!("  curl -H 'Authorization: Bearer tok2' 'https://host:8443/openapi.json'");
+    println!("  # (no header → HTTP 401 with a JSON error body)");
+    println!();
     println!("  # MCP client (Claude Desktop / any MCP client):");
     println!("  #   url: http://127.0.0.1:8080/mcp");
+    println!("  #   (with --bearer: same URL + 'Authorization: Bearer <tok>' header)");
 }
 
 fn print_serve_help_zh() {
@@ -67,8 +77,18 @@ fn print_serve_help_zh() {
     println!("示例：");
     println!("  ddc serve --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!();
+    println!("  # 凭据 + TLS + CORS，一个进程：");
+    println!("  ddc serve --addr 0.0.0.0:8443 --bearer tok1,tok2 \\");
+    println!("      --tls-cert cert.pem --tls-key key.pem --cors 'https://app.example.com'");
+    println!("  curl -H 'Authorization: Bearer tok1' \\");
+    println!("      'https://host:8443/findrefs?input=app.apk&kind=string&query=token'");
+    println!("  curl -H 'Authorization: Bearer tok2' 'https://host:8443/openapi.json'");
+    println!("  # （缺凭据头 → HTTP 401，JSON 错误体）");
+    println!();
     println!("  # MCP 客户端（Claude Desktop / 任意 MCP 客户端）：");
     println!("  #   url: http://127.0.0.1:8080/mcp");
+    println!("  #   （带 --bearer 时：同一 URL + 'Authorization: Bearer <令牌>' 头）");
 }
 
 fn print_http_help_en() {
@@ -85,9 +105,16 @@ fn print_http_help_en() {
     println!("  --bearer TOK[,TOK], --timeout 45s, --cors ORIGIN[,ORIG],");
     println!("  --tls-cert F --tls-key F, --default k=v.");
     println!();
-    println!("Example:");
+    println!("Examples:");
     println!("  ddc http --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!("  curl '127.0.0.1:8080/openapi.json' | python3 -m json.tool | head");
+    println!();
+    println!("  # bearer auth + TLS:");
+    println!("  ddc http --addr 0.0.0.0:8443 --bearer tok1 \\");
+    println!("      --tls-cert cert.pem --tls-key key.pem");
+    println!("  curl -H 'Authorization: Bearer tok1' \\");
+    println!("      'https://host:8443/strings?input=app.apk&filter=token'");
 }
 
 fn print_http_help_zh() {
@@ -106,6 +133,13 @@ fn print_http_help_zh() {
     println!("示例：");
     println!("  ddc http --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!("  curl '127.0.0.1:8080/openapi.json' | python3 -m json.tool | head");
+    println!();
+    println!("  # 凭据 + TLS：");
+    println!("  ddc http --addr 0.0.0.0:8443 --bearer tok1 \\");
+    println!("      --tls-cert cert.pem --tls-key key.pem");
+    println!("  curl -H 'Authorization: Bearer tok1' \\");
+    println!("      'https://host:8443/strings?input=app.apk&filter=token'");
 }
 
 fn print_mcp_help_en() {
@@ -137,8 +171,20 @@ fn print_mcp_help_en() {
     println!("tools/list carries inputSchema and outputSchema.");
     println!();
     println!("Examples:");
-    println!("  ddc mcp stdio                 # agent config: command = ddc, args = [mcp, stdio]");
-    println!("  ddc mcp http --addr 127.0.0.1:9300 --bearer tok1");
+    println!("  ddc mcp stdio                # agent config: command = ddc,");
+    println!("                               #                args = ['mcp', 'stdio']");
+    println!();
+    println!("  # Claude Desktop — claude_desktop_config.json:");
+    println!("  #   'mcpServers': {{ 'ddc': {{ 'command': 'ddc',");
+    println!("  #                    'args': ['mcp', 'stdio'] }} }}");
+    println!();
+    println!("  # authenticated streamable HTTP + pinned spec revisions:");
+    println!("  ddc mcp http --addr 127.0.0.1:9300 --bearer tok1 \\");
+    println!("      --versions 2025-06-18,2026-07-28");
+    println!();
+    println!("  # session timeout + server identity in the handshake:");
+    println!("  ddc mcp http --addr 127.0.0.1:9300 --session-timeout 30m \\");
+    println!("      --name ddc-tools --server-version 0.1.25");
 }
 
 fn print_mcp_help_zh() {
@@ -169,11 +215,23 @@ fn print_mcp_help_zh() {
     println!("携带 inputSchema 与 outputSchema。");
     println!();
     println!("示例：");
-    println!("  ddc mcp stdio                 # Agent 配置：command = ddc, args = [mcp, stdio]");
-    println!("  ddc mcp http --addr 127.0.0.1:9300 --bearer tok1");
+    println!("  ddc mcp stdio                # Agent 配置：command = ddc,");
+    println!("                               #                args = ['mcp', 'stdio']");
+    println!();
+    println!("  # Claude Desktop（claude_desktop_config.json）：");
+    println!("  #   'mcpServers': {{ 'ddc': {{ 'command': 'ddc',");
+    println!("  #                    'args': ['mcp', 'stdio'] }} }}");
+    println!();
+    println!("  # 带凭据的流式 HTTP + 锁定协议修订：");
+    println!("  ddc mcp http --addr 127.0.0.1:9300 --bearer tok1 \\");
+    println!("      --versions 2025-06-18,2026-07-28");
+    println!();
+    println!("  # 会话超时 + 握手中的服务器身份：");
+    println!("  ddc mcp http --addr 127.0.0.1:9300 --session-timeout 30m \\");
+    println!("      --name ddc-tools --server-version 0.1.25");
 }
 
-/// `ddc help serve` / `ddc help mcp` / `ddc serve -h` / `ddc mcp -h`.
+/// `ddc help serve` / `ddc help mcp` / `ddc serve -h` / `ddc mcp -h`./// `ddc help serve` / `ddc help mcp` / `ddc serve -h` / `ddc mcp -h`.
 pub(crate) fn print_mode_help(mode: &str) {
     match mode {
         "serve" => match crate::lang::lang() {
