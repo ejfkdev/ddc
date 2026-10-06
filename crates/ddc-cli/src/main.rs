@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{bail, Context, Result};
 
+mod api;
 mod arsc;
 mod axml;
 mod browse;
@@ -20,6 +21,8 @@ mod findrefs;
 mod inputs;
 mod lang;
 mod manifest;
+#[cfg(feature = "xyz")]
+mod xyz_api;
 
 use inputs::{
     collect_images, dir_has_dex_files, expand_inputs, filter_images_by_dex, is_dex_ext,
@@ -1048,6 +1051,19 @@ fn main() {
         }
         _ => {}
     }
+    // xyz frontends: `ddc serve` (HTTP REST + OpenAPI + streamable MCP)
+    // and `ddc mcp stdio|http` (MCP tool server). Only these two words
+    // route to the xyz dispatcher — every ddc command is registered with
+    // its CLI channel skipped, so the existing CLI surface is untouched.
+    // Flag-leading invocations never reach here (the existing option
+    // parser owns them).
+    #[cfg(feature = "xyz")]
+    if let Some(first) = args.first() {
+        if first == "serve" || first == "mcp" {
+            let code = crate::xyz_api::run(args);
+            std::process::exit(code);
+        }
+    }
     // Leading subcommand word (unless an actual path shadows it) routes
     // to the metadata fast paths: query the artifact as a database
     // instead of decompiling everything.
@@ -1236,6 +1252,34 @@ fn sub_input(args: &[String], cmd: &str) -> Result<PathBuf> {
         .with_context(|| format!("{cmd} needs an input file"))
 }
 
+/// Output format for the query subcommands: `text` (the default — the
+/// exact rendering each command has always printed) or `json` (the
+/// typed report the HTTP/MCP frontends serve).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutFormat {
+    Text,
+    Json,
+}
+
+pub(crate) fn parse_format(v: &str) -> Result<OutFormat> {
+    match v {
+        "text" => Ok(OutFormat::Text),
+        "json" => Ok(OutFormat::Json),
+        other => bail!(
+            "{}",
+            bif!("unknown format {0:?} (text|json)", "未知格式 {0:?}（text|json）"; other)
+        ),
+    }
+}
+
+/// Print a typed report as pretty JSON (the `--format json` branch of
+/// every query command; the HTTP and MCP frontends serve the same
+/// structs).
+pub(crate) fn print_json<T: serde::Serialize>(report: &T) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(report)?);
+    Ok(())
+}
+
 /// `142.9 MB` style human size.
 fn fmt_bytes(n: u64) -> String {
     if n >= 1024 * 1024 * 1024 {
@@ -1329,9 +1373,17 @@ fn cmd_manifest(args: &[String], t0: std::time::Instant) -> Result<()> {
     let input = sub_input(args, "manifest")?;
     let mut out: Option<PathBuf> = None;
     let mut component: Option<String> = None;
+    let mut format = OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--format" => {
+                format = parse_format(
+                    args.get(i + 1)
+                        .context(bi!("--format needs a value", "--format 需要一个值"))?,
+                )?;
+                i += 1;
+            }
             "-o" | "--output" => {
                 out = Some(PathBuf::from(
                     args.get(i + 1)
@@ -1357,6 +1409,14 @@ fn cmd_manifest(args: &[String], t0: std::time::Instant) -> Result<()> {
     }
     // Extraction lives in manifest.rs (shared with mainactivity/pkg --app).
     let (label, xml) = manifest::manifest_xml(&input)?;
+    if format == OutFormat::Json {
+        let text = crate::api::manifest_text(&input, component.as_deref())?;
+        return print_json(&serde_json::json!({
+            "input": input.display().to_string(),
+            "label": label,
+            "xml": text,
+        }));
+    }
     let text = match &component {
         Some(c) => manifest::component_xml(&xml, c),
         None => xml,
@@ -1387,6 +1447,7 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
     // Option loop like every other subcommand: -d restricts the image
     // set, unknown options error instead of being silently ignored.
     let mut dex_filters: Vec<String> = Vec::new();
+    let mut format = OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1398,6 +1459,13 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
                 );
                 i += 1;
             }
+            "--format" => {
+                format = parse_format(
+                    args.get(i + 1)
+                        .context(bi!("--format needs a value", "--format 需要一个值"))?,
+                )?;
+                i += 1;
+            }
             a if a.starts_with('-') => bail!(
                 "{}",
                 bif!("info: unknown option {0}", "info：未知选项 {0}"; a)
@@ -1407,6 +1475,18 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
         i += 1;
     }
     let input = sub_input(args, "info")?;
+    if format == OutFormat::Json {
+        // --dex-filtered variant: report the filtered image set.
+        let mut report = crate::api::info_report(&input)?;
+        if !dex_filters.is_empty() {
+            report.images.retain(|im| {
+                dex_filters.iter().any(|f| im.image.contains(f.as_str()))
+            });
+            report.total_images = report.images.len() as u64;
+            report.total_classes = report.images.iter().map(|i| i.classes).sum();
+        }
+        return print_json(&report);
+    }
     // Context header — best effort: only when a manifest exists (an APK
     // or container; a bare .dex/jar drops straight to the table). The
     // label resolves `@0x…` refs through resources.arsc.
@@ -1508,9 +1588,17 @@ fn cmd_listclasses(args: &[String], _t0: std::time::Instant) -> Result<()> {
     let mut input: Option<PathBuf> = None;
     let mut pattern: Option<String> = None;
     let mut dex_filters: Vec<String> = Vec::new();
+    let mut format = OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--format" => {
+                format = parse_format(
+                    args.get(i + 1)
+                        .context(bi!("--format needs a value", "--format 需要一个值"))?,
+                )?;
+                i += 1;
+            }
             "-d" | "--dex" => {
                 dex_filters.push(
                     args.get(i + 1)
@@ -1545,6 +1633,10 @@ fn cmd_listclasses(args: &[String], _t0: std::time::Instant) -> Result<()> {
         "listclasses needs an input file",
         "listclasses 需要输入文件"
     ))?;
+    if format == OutFormat::Json {
+        let names = crate::api::class_names(&input, pattern.as_deref(), &dex_filters)?;
+        return print_json(&names);
+    }
     // Class names need only each image's class_defs → type_ids → the
     // class-name STRING ENTRIES: prefix decoding straight off the inflated
     // bytes (a full DexFile::parse decodes the whole string table — the
@@ -1617,10 +1709,18 @@ fn cmd_getclass(args: &[String], t0: std::time::Instant) -> Result<()> {
     let mut inputs: Vec<PathBuf> = Vec::new();
     let mut out: Option<PathBuf> = None;
     let mut dex_filters: Vec<String> = Vec::new();
+    let mut format = OutFormat::Text;
     let mut positionals: Vec<String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--format" => {
+                format = parse_format(
+                    args.get(i + 1)
+                        .context(bi!("--format needs a value", "--format 需要一个值"))?,
+                )?;
+                i += 1;
+            }
             "-o" | "--output" => {
                 out = Some(PathBuf::from(
                     args.get(i + 1)
@@ -1656,6 +1756,10 @@ fn cmd_getclass(args: &[String], t0: std::time::Instant) -> Result<()> {
         .first()
         .cloned()
         .context(bi!("getclass needs an input file", "getclass 需要输入文件"))?;
+    if format == OutFormat::Json && out.is_none() {
+        let src = crate::api::class_source(&inputs, &fqcn, &dex_filters)?;
+        return print_json(&src);
+    }
     let (text, defining_names) = getclass_text(&inputs, &fqcn, &dex_filters)?;
     let text = format!("{text}\n");
     if defining_names.len() > 1 {
@@ -1839,81 +1943,18 @@ fn prefix_or_full(
 
 // ---- findrefs ---------------------------------------------------------------
 
-fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
-    let mut positionals: Vec<String> = Vec::new();
-    let mut class: Option<String> = None;
-    let mut fuzzy_class = false;
-    let mut dex_filters: Vec<String> = Vec::new();
-    let mut out: Option<PathBuf> = None;
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--class" | "-C" => {
-                class = Some(
-                    args.get(i + 1)
-                        .context(bi!("--class needs a value", "--class 需要一个值"))?
-                        .to_string(),
-                );
-                i += 1;
-            }
-            "--fuzzy-class" => fuzzy_class = true,
-            "-d" | "--dex" => {
-                dex_filters.push(
-                    args.get(i + 1)
-                        .context(bi!("--dex needs a value", "--dex 需要一个值"))?
-                        .to_string(),
-                );
-                i += 1;
-            }
-            "-o" | "--output" => {
-                out = Some(PathBuf::from(
-                    args.get(i + 1)
-                        .context(bi!("-o needs a value", "-o 需要一个值"))?,
-                ));
-                i += 1;
-            }
-            a if a.starts_with('-') => bail!(
-                "{}",
-                bif!("findrefs: unknown option {0}", "findrefs：未知选项 {0}"; a)
-            ),
-            a => positionals.push(a.to_string()),
-        }
-        i += 1;
-    }
-    if positionals.len() < 3 {
-        bail!(
-            "{}",
-            bif!(
-                "findrefs needs <input> <string|type|method|field> <query> (method/field also take --class X, --fuzzy-class)",
-                "findrefs 需要 <输入> <string|type|method|field> <查询>（method/field 还可加 --class X、--fuzzy-class）"
-            )
-        );
-    }
-    let input = PathBuf::from(&positionals[0]);
-    let kind = positionals[1].clone();
-    let value = positionals[2].clone();
-    let query = match kind.as_str() {
-        "string" => findrefs::FindQuery::String(value),
-        "type" => findrefs::FindQuery::Type(value),
-        "method" => findrefs::FindQuery::Method {
-            class,
-            name: value,
-            fuzzy_class,
-        },
-        "field" => findrefs::FindQuery::Field {
-            class,
-            name: value,
-            fuzzy_class,
-        },
-        other => bail!(
-            "{}",
-            bif!("findrefs: unknown kind {0:?} (string|type|method|field)", "findrefs：未知类别 {0:?}（string|type|method|field）"; other)
-        ),
-    };
-
-    let files = expand_inputs(&[input])?;
+/// The pipelined findrefs scan (producer waves + bounded scanners),
+/// extracted so the CLI command and the typed query cores (api.rs /
+/// xyz frontends) share one pipeline. Returns hits + the collect time
+/// (the DDC_WALL probe keeps its phase split).
+fn findrefs_scan(
+    input: &Path,
+    query: &findrefs::FindQuery,
+    dex_filters: &[String],
+) -> Result<(Vec<findrefs::Hit>, std::time::Duration)> {
+    let files = expand_inputs(&[input.to_path_buf()])?;
     let t_wall = std::time::Instant::now();
-    let images = filter_images_by_dex(collect_images(&files)?, &dex_filters)?;
+    let images = filter_images_by_dex(collect_images(&files)?, dex_filters)?;
     #[allow(unused_variables)]
     let t_cd = t_wall.elapsed();
     // PIPELINED scan: a producer parses images in small waves and feeds a
@@ -2010,6 +2051,121 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
     producer
         .join()
         .map_err(|_| anyhow::anyhow!("parse producer panicked"))??;
+    let t_scan = t_wall.elapsed();
+    if std::env::var("DDC_WALL").is_ok() {
+        eprintln!(
+            "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
+            t_cd,
+            t_scan - t_cd,
+            hits.len()
+        );
+    }
+    hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
+    Ok((hits, t_cd))
+}
+
+fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
+    let mut positionals: Vec<String> = Vec::new();
+    let mut class: Option<String> = None;
+    let mut fuzzy_class = false;
+    let mut dex_filters: Vec<String> = Vec::new();
+    let mut out: Option<PathBuf> = None;
+    let mut format = OutFormat::Text;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--format" => {
+                format = parse_format(
+                    args.get(i + 1)
+                        .context(bi!("--format needs a value", "--format 需要一个值"))?,
+                )?;
+                i += 1;
+            }
+            "--class" | "-C" => {
+                class = Some(
+                    args.get(i + 1)
+                        .context(bi!("--class needs a value", "--class 需要一个值"))?
+                        .to_string(),
+                );
+                i += 1;
+            }
+            "--fuzzy-class" => fuzzy_class = true,
+            "-d" | "--dex" => {
+                dex_filters.push(
+                    args.get(i + 1)
+                        .context(bi!("--dex needs a value", "--dex 需要一个值"))?
+                        .to_string(),
+                );
+                i += 1;
+            }
+            "-o" | "--output" => {
+                out = Some(PathBuf::from(
+                    args.get(i + 1)
+                        .context(bi!("-o needs a value", "-o 需要一个值"))?,
+                ));
+                i += 1;
+            }
+            a if a.starts_with('-') => bail!(
+                "{}",
+                bif!("findrefs: unknown option {0}", "findrefs：未知选项 {0}"; a)
+            ),
+            a => positionals.push(a.to_string()),
+        }
+        i += 1;
+    }
+    if positionals.len() < 3 {
+        bail!(
+            "{}",
+            bif!(
+                "findrefs needs <input> <string|type|method|field> <query> (method/field also take --class X, --fuzzy-class)",
+                "findrefs 需要 <输入> <string|type|method|field> <查询>（method/field 还可加 --class X、--fuzzy-class）"
+            )
+        );
+    }
+    let input = PathBuf::from(&positionals[0]);
+    let kind = positionals[1].clone();
+    let value = positionals[2].clone();
+    let query = match kind.as_str() {
+        "string" => findrefs::FindQuery::String(value),
+        "type" => findrefs::FindQuery::Type(value),
+        "method" => findrefs::FindQuery::Method {
+            class,
+            name: value,
+            fuzzy_class,
+        },
+        "field" => findrefs::FindQuery::Field {
+            class,
+            name: value,
+            fuzzy_class,
+        },
+        other => bail!(
+            "{}",
+            bif!("findrefs: unknown kind {0:?} (string|type|method|field)", "findrefs：未知类别 {0:?}（string|type|method|field）"; other)
+        ),
+    };
+
+    if format == OutFormat::Json && out.is_none() {
+        // `query` consumed value/class — rebuild them for the typed core.
+        let (v, c) = match &query {
+            findrefs::FindQuery::String(v) => (v.clone(), None),
+            findrefs::FindQuery::Type(v) => (v.clone(), None),
+            findrefs::FindQuery::Method { class, name, .. }
+            | findrefs::FindQuery::Field { class, name, .. } => {
+                (name.clone(), class.clone())
+            }
+        };
+        let rows = crate::api::ref_rows(
+            &input,
+            &kind,
+            &v,
+            c.as_deref(),
+            fuzzy_class,
+            &dex_filters,
+        )?;
+        return print_json(&rows);
+    }
+    let t_wall = std::time::Instant::now();
+    let (mut hits, t_cd) = findrefs_scan(&input, &query, &dex_filters)?;
     let t_scan = t_wall.elapsed();
     if std::env::var("DDC_WALL").is_ok() {
         eprintln!(

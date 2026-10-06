@@ -74,12 +74,21 @@ pub(crate) fn parse_common(args: &[String], cmd: &str) -> Result<Common> {
     })
 }
 
+// ---- shared --format plumbing (query commands in this module) ----------------
+
+fn format_value(args: &[String], i: usize) -> anyhow::Result<String> {
+    args.get(i + 1)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("{}", crate::lang::pick("--format needs a value", "--format 需要一个值")))
+}
+
 // ---- strings ---------------------------------------------------------------
 
 pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
     let mut filter: Option<String> = None;
     let mut with_loc = false;
     let mut rest: Vec<String> = Vec::new();
+    let mut format = crate::OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -92,6 +101,10 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
                 i += 1;
             }
             "--with-locations" => with_loc = true,
+            "--format" => {
+                format = crate::parse_format(&format_value(args, i)?)?;
+                i += 1;
+            }
             "-d" | "--dex" => {
                 // parse_common owns -d/--dex, but this loop runs first —
                 // forward both tokens so it can see them.
@@ -112,6 +125,12 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
         i += 1;
     }
     let common = parse_common(&rest, "strings")?;
+
+    if format == crate::OutFormat::Json {
+        let rows =
+            crate::api::string_rows(&common.input, filter.as_deref(), with_loc, &common.dex_filters)?;
+        return crate::print_json(&rows);
+    }
 
     println!(
         "{:10}  {}",
@@ -350,6 +369,7 @@ fn dex_match(nb: &[u8], needle: &[u8]) -> bool {
 
 pub(crate) fn cmd_hierarchy(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
+    let mut format = crate::OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -362,6 +382,10 @@ pub(crate) fn cmd_hierarchy(args: &[String]) -> Result<()> {
                         .context(bi!("--dex needs a value", "--dex 需要一个值"))?
                         .clone(),
                 );
+                i += 1;
+            }
+            "--format" => {
+                format = crate::parse_format(&format_value(args, i)?)?;
                 i += 1;
             }
             a if a.starts_with('-') => bail!(
@@ -378,6 +402,11 @@ pub(crate) fn cmd_hierarchy(args: &[String]) -> Result<()> {
         .first()
         .context(bi!("hierarchy needs a class name", "hierarchy 需要类名"))?
         .replace('.', "/");
+
+    if format == crate::OutFormat::Json {
+        let rows = crate::api::hierarchy_rows(&common.input, &target, &common.dex_filters)?;
+        return crate::print_json(&rows);
+    }
 
     println!(
         "{:10}  {:<9}  {}",
@@ -575,6 +604,7 @@ pub(crate) fn cmd_largest(args: &[String]) -> Result<()> {
 
 pub(crate) fn cmd_disasm(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
+    let mut format = crate::OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -587,6 +617,10 @@ pub(crate) fn cmd_disasm(args: &[String]) -> Result<()> {
                         .context(bi!("--dex needs a value", "--dex 需要一个值"))?
                         .clone(),
                 );
+                i += 1;
+            }
+            "--format" => {
+                format = crate::parse_format(&format_value(args, i)?)?;
                 i += 1;
             }
             a if a.starts_with('-') => bail!(
@@ -602,6 +636,13 @@ pub(crate) fn cmd_disasm(args: &[String]) -> Result<()> {
         "disasm needs a class name (optionally Class.method)",
         "disasm 需要类名（可选 类.方法）"
     ))?;
+    if format == crate::OutFormat::Json {
+        let text = crate::api::disasm_text(&common.input, target, &common.dex_filters)?;
+        return crate::print_json(&serde_json::json!({
+            "target": target,
+            "disasm": text,
+        }));
+    }
     let class_full = target.replace('.', "/");
     // `Cells.t1` (whole thing is a class) vs `Greeter.greet` (class + method):
     // try the whole string as a class first, then fall back to splitting at
@@ -671,7 +712,7 @@ pub(crate) fn cmd_disasm(args: &[String]) -> Result<()> {
 /// Render one instruction's operands with resolved indices: registers as
 /// vN, literals as 0x…, string/type/field/method indices resolved through
 /// the raw tables, branch targets as absolute pcs, payloads inline.
-fn fmt_operands(
+pub(crate) fn fmt_operands(
     dex: &RawDex,
     i: &ddc_dex::insn::Insn,
     payloads: &std::collections::HashMap<u32, ddc_dex::insn::Payload>,
@@ -1138,6 +1179,7 @@ pub(crate) fn cmd_pkg(args: &[String]) -> Result<()> {
 
 pub(crate) fn cmd_getmethod(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
+    let mut format = crate::OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1150,6 +1192,10 @@ pub(crate) fn cmd_getmethod(args: &[String]) -> Result<()> {
                         .context(bi!("--dex needs a value", "--dex 需要一个值"))?
                         .clone(),
                 );
+                i += 1;
+            }
+            "--format" => {
+                format = crate::parse_format(&format_value(args, i)?)?;
                 i += 1;
             }
             a if a.starts_with('-') => bail!(
@@ -1187,6 +1233,10 @@ pub(crate) fn cmd_getmethod(args: &[String]) -> Result<()> {
         .rsplit_once('.')
         .filter(|(c, m)| !c.is_empty() && !m.is_empty() && !m.contains('('))
         .map(|(c, m)| (c.to_string(), m.to_string()));
+    if format == crate::OutFormat::Json && !args.iter().any(|a| a == "-o" || a == "--output") {
+        let src = crate::api::method_source(&common.input, target, &common.dex_filters)?;
+        return crate::print_json(&src);
+    }
     let candidates: Vec<(String, Option<String>)> = match &split {
         Some((c, m)) => vec![(c.clone(), Some(m.clone())), (target.to_string(), None)],
         None => vec![(target.to_string(), None)],
@@ -1237,7 +1287,7 @@ pub(crate) fn cmd_getmethod(args: &[String]) -> Result<()> {
 /// Slice one method's block out of a decompiled class: keeps the
 /// provenance header + package line, then every signature whose
 /// pre-paren token equals `method` (all overloads), dedented.
-fn slice_methods(text: &str, method: &str) -> Option<String> {
+pub(crate) fn slice_methods(text: &str, method: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     // Header: leading // lines (provenance), then the package line.
     let mut header: Vec<&str> = Vec::new();
@@ -1305,7 +1355,7 @@ fn slice_methods(text: &str, method: &str) -> Option<String> {
 }
 
 /// Every method name in a decompiled class (for getmethod's error hint).
-fn method_names(text: &str) -> Vec<String> {
+pub(crate) fn method_names(text: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for line in text.lines() {
         let t = line.trim_start();
@@ -1327,6 +1377,7 @@ fn method_names(text: &str) -> Vec<String> {
 
 pub(crate) fn cmd_mainactivity(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
+    let mut format = crate::OutFormat::Text;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1341,6 +1392,10 @@ pub(crate) fn cmd_mainactivity(args: &[String]) -> Result<()> {
                 );
                 i += 1;
             }
+            "--format" => {
+                format = crate::parse_format(&format_value(args, i)?)?;
+                i += 1;
+            }
             a if a.starts_with('-') => bail!(
                 "{}",
                 bif!("mainactivity: unknown option {0}", "mainactivity：未知选项 {0}"; a)
@@ -1350,6 +1405,11 @@ pub(crate) fn cmd_mainactivity(args: &[String]) -> Result<()> {
         i += 1;
     }
     let common = parse_common(&rest, "mainactivity")?;
+
+    if format == crate::OutFormat::Json {
+        let report = crate::api::main_activity(&common.input)?;
+        return crate::print_json(&report);
+    }
 
     let facts = crate::manifest::facts_for(&common.input)?;
     if facts.package.is_empty() {
