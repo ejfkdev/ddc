@@ -8,6 +8,7 @@
 //! class only), or `-` for stdout; default: `<input-stem>-out/` sibling.
 
 use std::io::Read;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -59,6 +60,8 @@ fn print_help_en() {
     println!("Usage:");
     println!("  ddc [OPTIONS] <INPUT>... [OUTPUT]     full decompile");
     println!("  ddc <SUBCOMMAND> [ARGS...]            metadata query, no full decompile");
+    println!("  ddc serve [--addr HOST:PORT]          HTTP REST + OpenAPI + MCP endpoint");
+    println!("  ddc mcp stdio|http                    MCP tool server (10 query tools)");
     println!("  ddc help [SUBCOMMAND]                 this help, or one command's");
     println!("  ddc version | -h | -V");
     println!();
@@ -129,6 +132,20 @@ fn print_help_en() {
     println!("    pkg <input> com.foo [-o DIR]    one package incl. subpackages;");
     println!("                                    --app uses the manifest package");
     println!();
+    println!("Output formats — every query command takes --format:");
+    println!("  auto (default)   table when stdout is a terminal, text when piped");
+    println!("  text             the stable column format scripts have always parsed");
+    println!("  table            aligned tables with header rules (xyz-rust renderer)");
+    println!("  markdown         pipe tables / fenced source blocks");
+    println!("  json | jsonl     the typed reports the HTTP and MCP frontends serve");
+    println!();
+    println!("HTTP & MCP (built in, via github.com/ejfkdev/xyz-rust):");
+    println!("  ddc serve --addr :8080     10 REST routes + GET /openapi.json +");
+    println!("                             a streamable MCP endpoint on the same port");
+    println!("  ddc mcp stdio              the same commands as MCP tools, with");
+    println!("                             input and output schemas (ddc.getclass, ...)");
+    println!("  ddc mcp http               streamable-HTTP MCP (loopback host only)");
+    println!();
     println!("Exit status: 0 success; 1 some classes failed; 2 usage error.");
     println!();
     println!("Examples:");
@@ -163,6 +180,8 @@ fn print_help_zh() {
     println!("用法：");
     println!("  ddc [选项] <输入>... [输出]           全量反编译");
     println!("  ddc <子命令> [参数...]                元数据查询，不做全量反编译");
+    println!("  ddc serve [--addr 主机:端口]          HTTP REST + OpenAPI + MCP 端点");
+    println!("  ddc mcp stdio|http                    MCP 工具服务器（10 个查询工具）");
     println!("  ddc help [子命令]                     本帮助，或单个子命令的说明");
     println!("  ddc version | -h | -V");
     println!();
@@ -227,6 +246,20 @@ fn print_help_zh() {
     println!("    getmethod <输入> FQCN.方法      单方法，含全部重载");
     println!("    pkg <输入> com.foo [-o 目录]    单个包（含子包）；--app 取 manifest 包名");
     println!();
+    println!("输出格式 —— 每个查询子命令都接受 --format：");
+    println!("  auto（默认）     stdout 是终端时输出表格，被管道/程序调用时输出文本");
+    println!("  text             脚本一直在解析的稳定列格式");
+    println!("  table            对齐表格 + 表头分隔线（xyz-rust 渲染器）");
+    println!("  markdown         管道表格 / 源码围栏代码块");
+    println!("  json | jsonl     HTTP 与 MCP 前端服务的同构类型数据");
+    println!();
+    println!("HTTP 与 MCP（内置，基于 github.com/ejfkdev/xyz-rust）：");
+    println!("  ddc serve --addr :8080     10 条 REST 路由 + GET /openapi.json，同端口");
+    println!("                             还有流式 MCP 端点");
+    println!("  ddc mcp stdio              同一批命令作为 MCP 工具（含输入/输出");
+    println!("                             schema：ddc.getclass、ddc.findrefs、…）");
+    println!("  ddc mcp http               流式 HTTP MCP（仅回环 Host）");
+    println!();
     println!("退出码：0 成功；1 部分类失败；2 用法错误。");
     println!();
     println!("示例：");
@@ -267,6 +300,16 @@ struct SubHelp {
     examples: &'static [(&'static str, &'static str)],
 }
 
+// The shared --format row (query commands, English card).
+const FMT_ROW_EN: (&str, &str) = (
+    "--format FMT",
+    "auto | text | table | markdown | json | jsonl (default auto: table on a terminal, text when piped)",
+);
+const FMT_ROW_ZH: (&str, &str) = (
+    "--format FMT",
+    "auto | text | table | markdown | json | jsonl（默认 auto：终端表格、管道文本）",
+);
+
 // Option entries shared by several commands.
 const DEX_EN: (&str, &str) = (
     "-d, --dex NAME",
@@ -295,6 +338,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc info app.apk", "app context and the per-image class/method/field table"),
@@ -312,6 +356,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc listclasses app.apk | wc -l", "total class count"),
@@ -346,6 +391,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc mainactivity app.apk", "package + launcher activity, verified in the dex"),
@@ -381,6 +427,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("-f, --filter TEXT", "keep strings containing TEXT (case-insensitive)"),
                 ("--with-locations", "map each string to its referencing methods"),
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc strings app.apk -f token", "strings containing \"token\""),
@@ -402,6 +449,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("--fuzzy-class", "match the owner class fuzzily"),
                 OUT_FILE_EN,
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc findrefs app.apk string api_key", "every \"api_key\" string-literal site"),
@@ -460,6 +508,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc hierarchy app.apk androidx.fragment.app.FragmentActivity", "its supertypes and every subclass"),
@@ -493,6 +542,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc disasm app.apk com.example.Foo", "bytecode of every method in the class"),
@@ -512,6 +562,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             opts: &[
                 OUT_FILE_EN,
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc getclass app.apk com.example.Foo", "one class with its nested classes, to stdout"),
@@ -531,6 +582,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             opts: &[
                 OUT_FILE_EN,
                 DEX_EN,
+                FMT_ROW_EN,
             ],
             examples: &[
                 ("ddc getmethod app.apk com.example.Foo.toString", "one method, all overloads"),
@@ -658,6 +710,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 ("-f, --filter TEXT", "只保留包含 TEXT 的字符串（大小写不敏感）"),
                 ("--with-locations", "将每个字符串映射到引用它的方法"),
                 DEX_ZH,
+                FMT_ROW_ZH,
             ],
             examples: &[
                 ("ddc strings app.apk -f token", "包含 \"token\" 的字符串"),
@@ -679,6 +732,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 ("--fuzzy-class", "所属类模糊匹配"),
                 OUT_FILE_ZH,
                 DEX_ZH,
+                FMT_ROW_ZH,
             ],
             examples: &[
                 ("ddc findrefs app.apk string api_key", "每个 \"api_key\" 字符串字面量位点"),
@@ -737,6 +791,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_ZH,
+                FMT_ROW_ZH,
             ],
             examples: &[
                 ("ddc hierarchy app.apk androidx.fragment.app.FragmentActivity", "其超类与全部子类"),
@@ -770,6 +825,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
             ],
             opts: &[
                 DEX_ZH,
+                FMT_ROW_ZH,
             ],
             examples: &[
                 ("ddc disasm app.apk com.example.Foo", "类内每个方法的字节码"),
@@ -789,6 +845,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
             opts: &[
                 OUT_FILE_ZH,
                 DEX_ZH,
+                FMT_ROW_ZH,
             ],
             examples: &[
                 ("ddc getclass app.apk com.example.Foo", "单类连同嵌套类，输出到 stdout"),
@@ -808,6 +865,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
             opts: &[
                 OUT_FILE_ZH,
                 DEX_ZH,
+                FMT_ROW_ZH,
             ],
             examples: &[
                 ("ddc getmethod app.apk com.example.Foo.toString", "单个方法，含全部重载"),
@@ -1250,33 +1308,153 @@ fn sub_input(args: &[String], cmd: &str) -> Result<PathBuf> {
         .with_context(|| format!("{cmd} needs an input file"))
 }
 
-/// Output format for the query subcommands: `text` (the default — the
-/// exact rendering each command has always printed) or `json` (the
-/// typed report the HTTP/MCP frontends serve).
+/// Output format for the query subcommands. `auto` (the default) picks
+/// by stdout: a terminal gets the human rendering (aligned tables via
+/// xyz-rust's CLI renderer), a pipe gets the stable text form scripts
+/// have always parsed. `table`/`markdown` force the human renderers;
+/// `json`/`jsonl` emit the typed reports the HTTP/MCP frontends serve.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutFormat {
+    Auto,
     Text,
+    Table,
+    Markdown,
     Json,
+    Jsonl,
 }
 
 pub(crate) fn parse_format(v: &str) -> Result<OutFormat> {
     match v {
+        "auto" => Ok(OutFormat::Auto),
         "text" => Ok(OutFormat::Text),
+        "table" => Ok(OutFormat::Table),
+        "markdown" | "md" => Ok(OutFormat::Markdown),
         "json" => Ok(OutFormat::Json),
+        "jsonl" => Ok(OutFormat::Jsonl),
         other => bail!(
             "{}",
-            bif!("unknown format {0:?} (text|json)", "未知格式 {0:?}（text|json）"; other)
+            bif!(
+                "unknown format {0:?} (auto|text|table|markdown|json|jsonl)",
+                "未知格式 {0:?}（auto|text|table|markdown|json|jsonl）";
+                other
+            )
         ),
     }
 }
 
-/// Print a typed report as pretty JSON (the `--format json` branch of
-/// every query command; the HTTP and MCP frontends serve the same
-/// structs).
-pub(crate) fn print_json<T: serde::Serialize>(report: &T) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(report)?);
-    Ok(())
+/// The format after `auto` resolved against the actual stdout.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResolvedFormat {
+    Text,
+    Table,
+    Markdown,
+    Json,
+    Jsonl,
 }
+
+pub(crate) fn resolve_format(f: OutFormat) -> ResolvedFormat {
+    use std::io::IsTerminal;
+    match f {
+        OutFormat::Auto => {
+            if std::io::stdout().is_terminal() {
+                ResolvedFormat::Table
+            } else {
+                ResolvedFormat::Text
+            }
+        }
+        OutFormat::Text => ResolvedFormat::Text,
+        OutFormat::Table => ResolvedFormat::Table,
+        OutFormat::Markdown => ResolvedFormat::Markdown,
+        OutFormat::Json => ResolvedFormat::Json,
+        OutFormat::Jsonl => ResolvedFormat::Jsonl,
+    }
+}
+
+/// Render a typed report in every non-text format (the `--format` branch
+/// of the query commands): `table` through xyz-rust's CLI renderer
+/// (Vec<struct> → aligned table with a header rule, struct → key/value
+/// columns), `markdown` through its Markdown renderer, `json`/`jsonl`
+/// as the typed values the HTTP and MCP frontends serve.
+pub(crate) fn print_report<T: serde::Serialize>(f: ResolvedFormat, report: &T) -> Result<()> {
+    let mut out = std::io::stdout().lock();
+    let value = serde_json::to_value(report)?;
+    let r = match f {
+        ResolvedFormat::Table => xyz_rust::cli::render(&mut out, report),
+        ResolvedFormat::Markdown => xyz_rust::cli::format::render_markdown(&mut out, &value),
+        ResolvedFormat::Json => {
+            serde_json::to_writer_pretty(&mut out, &value)?;
+            out.write_all(b"\n")?;
+            Ok(())
+        }
+        ResolvedFormat::Jsonl => xyz_rust::cli::format::render_jsonl(&mut out, &value),
+        ResolvedFormat::Text => unreachable!("text renders on the legacy path"),
+    };
+    r.map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// `info` renders in two pieces in the human formats: the scalar fields
+/// as key/value, then the per-image table below (one nested-array cell
+/// would be unreadable).
+pub(crate) fn print_info_report(f: ResolvedFormat, report: &api::InfoReport) -> Result<()> {
+    if matches!(f, ResolvedFormat::Json | ResolvedFormat::Jsonl) {
+        return print_report(f, report);
+    }
+    let mut value = serde_json::to_value(report)?;
+    let images = value
+        .as_object_mut()
+        .and_then(|o| o.remove("images"))
+        .unwrap_or(serde_json::Value::Array(Vec::new()));
+    let mut out = std::io::stdout().lock();
+    let r = (|| -> std::result::Result<(), xyz_rust::errs::Error> {
+        match f {
+            ResolvedFormat::Table => {
+                xyz_rust::cli::render_value(&mut out, &value)?;
+                if let serde_json::Value::Array(rows) = &images {
+                    if !rows.is_empty() {
+                        println!();
+                        xyz_rust::cli::render_value(&mut out, &images)?;
+                    }
+                }
+            }
+            ResolvedFormat::Markdown => {
+                xyz_rust::cli::format::render_markdown(&mut out, &value)?;
+                if let serde_json::Value::Array(rows) = &images {
+                    if !rows.is_empty() {
+                        println!();
+                        xyz_rust::cli::format::render_markdown(&mut out, &images)?;
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    })();
+    r.map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// Source-shaped reports (getclass/getmethod/disasm/manifest): `table`
+/// prints the source as-is (a source dump IS its human form) and
+/// `markdown` wraps it in a fenced block tagged with `lang`.
+pub(crate) fn print_source(f: ResolvedFormat, source: &str, lang: &str) -> Result<()> {
+    match f {
+        ResolvedFormat::Table => {
+            print!("{source}");
+            Ok(())
+        }
+        ResolvedFormat::Markdown => {
+            println!("```{lang}");
+            print!("{source}");
+            if !source.ends_with('\n') {
+                println!();
+            }
+            println!("```");
+            Ok(())
+        }
+        _ => bail!("print_source only handles table|markdown"),
+    }
+}
+
+
 
 /// `142.9 MB` style human size.
 fn fmt_bytes(n: u64) -> String {
@@ -1371,7 +1549,7 @@ fn cmd_manifest(args: &[String], t0: std::time::Instant) -> Result<()> {
     let input = sub_input(args, "manifest")?;
     let mut out: Option<PathBuf> = None;
     let mut component: Option<String> = None;
-    let mut format = OutFormat::Text;
+    let mut format = OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1407,13 +1585,23 @@ fn cmd_manifest(args: &[String], t0: std::time::Instant) -> Result<()> {
     }
     // Extraction lives in manifest.rs (shared with mainactivity/pkg --app).
     let (label, xml) = manifest::manifest_xml(&input)?;
-    if format == OutFormat::Json {
+    if format != OutFormat::Text && out.is_none() {
         let text = crate::api::manifest_text(&input, component.as_deref())?;
-        return print_json(&serde_json::json!({
-            "input": input.display().to_string(),
-            "label": label,
-            "xml": text,
-        }));
+        let rf = resolve_format(format);
+        match rf {
+            ResolvedFormat::Text => {}
+            ResolvedFormat::Json | ResolvedFormat::Jsonl => {
+                return print_report(
+                    rf,
+                    &serde_json::json!({
+                        "input": input.display().to_string(),
+                        "label": label,
+                        "xml": text,
+                    }),
+                );
+            }
+            _ => return print_source(rf, &text, "xml"),
+        }
     }
     let text = match &component {
         Some(c) => manifest::component_xml(&xml, c),
@@ -1445,7 +1633,7 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
     // Option loop like every other subcommand: -d restricts the image
     // set, unknown options error instead of being silently ignored.
     let mut dex_filters: Vec<String> = Vec::new();
-    let mut format = OutFormat::Text;
+    let mut format = OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1473,7 +1661,7 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
         i += 1;
     }
     let input = sub_input(args, "info")?;
-    if format == OutFormat::Json {
+    if format != OutFormat::Text {
         // --dex-filtered variant: report the filtered image set.
         let mut report = crate::api::info_report(&input)?;
         if !dex_filters.is_empty() {
@@ -1483,7 +1671,14 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
             report.total_images = report.images.len() as u64;
             report.total_classes = report.images.iter().map(|i| i.classes).sum();
         }
-        return print_json(&report);
+        let rf = resolve_format(format);
+        if rf == ResolvedFormat::Text {
+            // auto resolved to text: fall through to the legacy path.
+        } else if matches!(rf, ResolvedFormat::Json | ResolvedFormat::Jsonl) {
+            return print_report(rf, &report);
+        } else {
+            return print_info_report(rf, &report);
+        }
     }
     // Context header — best effort: only when a manifest exists (an APK
     // or container; a bare .dex/jar drops straight to the table). The
@@ -1586,7 +1781,7 @@ fn cmd_listclasses(args: &[String], _t0: std::time::Instant) -> Result<()> {
     let mut input: Option<PathBuf> = None;
     let mut pattern: Option<String> = None;
     let mut dex_filters: Vec<String> = Vec::new();
-    let mut format = OutFormat::Text;
+    let mut format = OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1631,9 +1826,12 @@ fn cmd_listclasses(args: &[String], _t0: std::time::Instant) -> Result<()> {
         "listclasses needs an input file",
         "listclasses 需要输入文件"
     ))?;
-    if format == OutFormat::Json {
+    if format != OutFormat::Text {
         let names = crate::api::class_names(&input, pattern.as_deref(), &dex_filters)?;
-        return print_json(&names);
+        let rf = resolve_format(format);
+        if rf != ResolvedFormat::Text {
+            return print_report(rf, &names);
+        }
     }
     // Class names need only each image's class_defs → type_ids → the
     // class-name STRING ENTRIES: prefix decoding straight off the inflated
@@ -1707,7 +1905,7 @@ fn cmd_getclass(args: &[String], t0: std::time::Instant) -> Result<()> {
     let mut inputs: Vec<PathBuf> = Vec::new();
     let mut out: Option<PathBuf> = None;
     let mut dex_filters: Vec<String> = Vec::new();
-    let mut format = OutFormat::Text;
+    let mut format = OutFormat::Auto;
     let mut positionals: Vec<String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -1754,9 +1952,19 @@ fn cmd_getclass(args: &[String], t0: std::time::Instant) -> Result<()> {
         .first()
         .cloned()
         .context(bi!("getclass needs an input file", "getclass 需要输入文件"))?;
-    if format == OutFormat::Json && out.is_none() {
-        let src = crate::api::class_source(&inputs, &fqcn, &dex_filters)?;
-        return print_json(&src);
+    if format != OutFormat::Text && out.is_none() {
+        let rf = resolve_format(format);
+        match rf {
+            ResolvedFormat::Text => {}
+            ResolvedFormat::Json | ResolvedFormat::Jsonl => {
+                let src = crate::api::class_source(&inputs, &fqcn, &dex_filters)?;
+                return print_report(rf, &src);
+            }
+            _ => {
+                let src = crate::api::class_source(&inputs, &fqcn, &dex_filters)?;
+                return print_source(rf, &src.source, "java");
+            }
+        }
     }
     let (text, defining_names) = getclass_text(&inputs, &fqcn, &dex_filters)?;
     let text = format!("{text}\n");
@@ -2068,7 +2276,7 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
     let mut fuzzy_class = false;
     let mut dex_filters: Vec<String> = Vec::new();
     let mut out: Option<PathBuf> = None;
-    let mut format = OutFormat::Text;
+    let mut format = OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -2142,7 +2350,7 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
         ),
     };
 
-    if format == OutFormat::Json && out.is_none() {
+    if format != OutFormat::Text && out.is_none() {
         // `query` consumed value/class — rebuild them for the typed core.
         let (v, c) = match &query {
             findrefs::FindQuery::String(v) => (v.clone(), None),
@@ -2160,7 +2368,10 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
             fuzzy_class,
             &dex_filters,
         )?;
-        return print_json(&rows);
+        let rf = resolve_format(format);
+        if rf != ResolvedFormat::Text {
+            return print_report(rf, &rows);
+        }
     }
     let t_wall = std::time::Instant::now();
     let (mut hits, t_cd) = findrefs_scan(&input, &query, &dex_filters)?;

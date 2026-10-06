@@ -88,7 +88,7 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
     let mut filter: Option<String> = None;
     let mut with_loc = false;
     let mut rest: Vec<String> = Vec::new();
-    let mut format = crate::OutFormat::Text;
+    let mut format = crate::OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -126,10 +126,13 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
     }
     let common = parse_common(&rest, "strings")?;
 
-    if format == crate::OutFormat::Json {
+    if format != crate::OutFormat::Text {
         let rows =
             crate::api::string_rows(&common.input, filter.as_deref(), with_loc, &common.dex_filters)?;
-        return crate::print_json(&rows);
+        let rf = crate::resolve_format(format);
+        if rf != crate::ResolvedFormat::Text {
+            return crate::print_report(rf, &rows);
+        }
     }
 
     println!(
@@ -369,7 +372,7 @@ fn dex_match(nb: &[u8], needle: &[u8]) -> bool {
 
 pub(crate) fn cmd_hierarchy(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
-    let mut format = crate::OutFormat::Text;
+    let mut format = crate::OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -403,9 +406,12 @@ pub(crate) fn cmd_hierarchy(args: &[String]) -> Result<()> {
         .context(bi!("hierarchy needs a class name", "hierarchy 需要类名"))?
         .replace('.', "/");
 
-    if format == crate::OutFormat::Json {
+    if format != crate::OutFormat::Text {
         let rows = crate::api::hierarchy_rows(&common.input, &target, &common.dex_filters)?;
-        return crate::print_json(&rows);
+        let rf = crate::resolve_format(format);
+        if rf != crate::ResolvedFormat::Text {
+            return crate::print_report(rf, &rows);
+        }
     }
 
     println!(
@@ -604,7 +610,7 @@ pub(crate) fn cmd_largest(args: &[String]) -> Result<()> {
 
 pub(crate) fn cmd_disasm(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
-    let mut format = crate::OutFormat::Text;
+    let mut format = crate::OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -636,12 +642,19 @@ pub(crate) fn cmd_disasm(args: &[String]) -> Result<()> {
         "disasm needs a class name (optionally Class.method)",
         "disasm 需要类名（可选 类.方法）"
     ))?;
-    if format == crate::OutFormat::Json {
+    if format != crate::OutFormat::Text {
         let text = crate::api::disasm_text(&common.input, target, &common.dex_filters)?;
-        return crate::print_json(&serde_json::json!({
-            "target": target,
-            "disasm": text,
-        }));
+        let rf = crate::resolve_format(format);
+        match rf {
+            crate::ResolvedFormat::Text => {}
+            crate::ResolvedFormat::Json | crate::ResolvedFormat::Jsonl => {
+                return crate::print_report(
+                    rf,
+                    &serde_json::json!({ "target": target, "disasm": text }),
+                );
+            }
+            _ => return crate::print_source(rf, &text, ""),
+        }
     }
     let class_full = target.replace('.', "/");
     // `Cells.t1` (whole thing is a class) vs `Greeter.greet` (class + method):
@@ -1179,7 +1192,7 @@ pub(crate) fn cmd_pkg(args: &[String]) -> Result<()> {
 
 pub(crate) fn cmd_getmethod(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
-    let mut format = crate::OutFormat::Text;
+    let mut format = crate::OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1233,9 +1246,21 @@ pub(crate) fn cmd_getmethod(args: &[String]) -> Result<()> {
         .rsplit_once('.')
         .filter(|(c, m)| !c.is_empty() && !m.is_empty() && !m.contains('('))
         .map(|(c, m)| (c.to_string(), m.to_string()));
-    if format == crate::OutFormat::Json && !args.iter().any(|a| a == "-o" || a == "--output") {
-        let src = crate::api::method_source(&common.input, target, &common.dex_filters)?;
-        return crate::print_json(&src);
+    if format != crate::OutFormat::Text
+        && !args.iter().any(|a| a == "-o" || a == "--output")
+    {
+        let rf = crate::resolve_format(format);
+        match rf {
+            crate::ResolvedFormat::Text => {}
+            crate::ResolvedFormat::Json | crate::ResolvedFormat::Jsonl => {
+                let src = crate::api::method_source(&common.input, target, &common.dex_filters)?;
+                return crate::print_report(rf, &src);
+            }
+            _ => {
+                let src = crate::api::method_source(&common.input, target, &common.dex_filters)?;
+                return crate::print_source(rf, &src.source, "java");
+            }
+        }
     }
     let candidates: Vec<(String, Option<String>)> = match &split {
         Some((c, m)) => vec![(c.clone(), Some(m.clone())), (target.to_string(), None)],
@@ -1377,7 +1402,7 @@ pub(crate) fn method_names(text: &str) -> Vec<String> {
 
 pub(crate) fn cmd_mainactivity(args: &[String]) -> Result<()> {
     let mut rest: Vec<String> = Vec::new();
-    let mut format = crate::OutFormat::Text;
+    let mut format = crate::OutFormat::Auto;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1406,9 +1431,12 @@ pub(crate) fn cmd_mainactivity(args: &[String]) -> Result<()> {
     }
     let common = parse_common(&rest, "mainactivity")?;
 
-    if format == crate::OutFormat::Json {
+    if format != crate::OutFormat::Text {
         let report = crate::api::main_activity(&common.input)?;
-        return crate::print_json(&report);
+        let rf = crate::resolve_format(format);
+        if rf != crate::ResolvedFormat::Text {
+            return crate::print_report(rf, &report);
+        }
     }
 
     let facts = crate::manifest::facts_for(&common.input)?;
