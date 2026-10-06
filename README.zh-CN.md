@@ -30,6 +30,11 @@
   域表，`--symbols` 可覆盖）；Kotlin 空检查噪声消除、synthetic
   `access$NNN` 桥在调用点内联。
 - **可复现输出** —— 无时间戳，两次运行 diff 干净。
+- **HTTP REST + MCP**（`--features xyz` 构建）：`ddc serve` 把每个查询
+  命令暴露为 REST 路由 + `GET /openapi.json` + 流式 MCP 端点；
+  `ddc mcp stdio` 以 MCP 工具形式提供同一批命令 —— 基于
+  [xyz-rust](https://github.com/ejfkdev/xyz-rust) 的一次定义三接口。
+  查询子命令还支持 `--format json` 输出同构类型数据。
 - **中英双语 CLI** —— 按环境变量自动识别语言（`DDC_LANG=zh|en` 强制
   指定，回退英文）。
 - 基于 [`jdc-core`](https://crates.io/crates/jdc-core) —— 与

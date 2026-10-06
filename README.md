@@ -35,6 +35,12 @@ parses cleanly.
   table, `--symbols` overrides); Kotlin null-check noise is elided and
   synthetic `access$NNN` bridges inline at their call sites.
 - **Reproducible output** — no timestamps; two runs diff cleanly.
+- **HTTP REST + MCP** (build with `--features xyz`): `ddc serve` exposes
+  every query as a REST route with `GET /openapi.json` and a streamable
+  MCP endpoint; `ddc mcp stdio` runs the same commands as MCP tools —
+  one definition, three interfaces via
+  [xyz-rust](https://github.com/ejfkdev/xyz-rust). Query commands
+  also take `--format json` for the same typed output.
 - **Bilingual CLI** — messages localize automatically
   (`DDC_LANG=zh|en` forces; English fallback).
 - Built on [`jdc-core`](https://crates.io/crates/jdc-core), the
