@@ -15,7 +15,7 @@ categories = ["command-line-utilities", "development-tools::debugging"]
 [workspace.dependencies]
 ddc-dex = { path = "crates/ddc-dex", version = "0.2.5" }
 ddc-dec = { path = "crates/ddc-dec", version = "0.1.25" }
-jdc-core = "0.2.15"
+jdc-core = "0.2.16"
 anyhow = "1"
 
 [profile.release]
