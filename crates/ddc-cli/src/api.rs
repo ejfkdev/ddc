@@ -20,7 +20,7 @@ use crate::findrefs::{decode_mutf8_lossy, RawDex};
 // ---- responses ---------------------------------------------------------------
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct ImageCounts {
     pub image: String,
     pub dex_version: String,
@@ -31,7 +31,7 @@ pub struct ImageCounts {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct InfoReport {
     /// App display label (resources.arsc), when a manifest exists.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,7 +57,7 @@ pub struct InfoReport {
 
 /// One decompiled class (source + the image that defined it).
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct ClassSource {
     pub class: String,
     /// Defining image label (`apk!classes2.dex`); with several defining
@@ -71,7 +71,7 @@ pub struct ClassSource {
 
 /// One decompiled method slice (all overloads of the name).
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct MethodSource {
     pub class: String,
     /// The method name requested (overloads carry descriptors in the
@@ -83,7 +83,7 @@ pub struct MethodSource {
 
 /// A cross-reference hit row (one per method with matches).
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct RefRow {
     pub dex: String,
     /// First-hit instruction kind (`const-string`, `invoke`...).
@@ -98,7 +98,7 @@ pub struct RefRow {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct StringRow {
     pub dex: String,
     /// The string table entry, Java-quoted form.
@@ -109,7 +109,7 @@ pub struct StringRow {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct RelationRow {
     pub dex: String,
     /// class | extends | implements | sub | impl
@@ -119,7 +119,7 @@ pub struct RelationRow {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[cfg_attr(feature = "xyz", derive(xyz_rust::XyzOutput))]
+#[derive(xyz_rust::XyzOutput)]
 pub struct MainActivityReport {
     pub package: String,
     #[serde(skip_serializing_if = "Option::is_none")]

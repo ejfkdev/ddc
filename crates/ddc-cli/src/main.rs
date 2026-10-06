@@ -21,7 +21,6 @@ mod findrefs;
 mod inputs;
 mod lang;
 mod manifest;
-#[cfg(feature = "xyz")]
 mod xyz_api;
 
 use inputs::{
@@ -1057,7 +1056,6 @@ fn main() {
     // its CLI channel skipped, so the existing CLI surface is untouched.
     // Flag-leading invocations never reach here (the existing option
     // parser owns them).
-    #[cfg(feature = "xyz")]
     if let Some(first) = args.first() {
         if first == "serve" || first == "mcp" {
             let code = crate::xyz_api::run(args);

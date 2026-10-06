@@ -56,13 +56,8 @@ if [[ $(printf '%s\n' "$jdc_req0" "$jdc_got0" | sort -V | head -1) != "$jdc_req0
 fi
 echo "==> jdc-core lock pre-check: $jdc_got0 >= $jdc_req0"
 echo "==> tests + clippy"
-# The xyz frontends (HTTP REST + MCP, crates/dad... see xyz_api.rs) are an
-# opt-in cargo feature (xyz-rust is a git dep — not on crates.io yet);
-# tests, clippy and the release build must exercise it.
 cargo test --release --quiet
-cargo test --release --features xyz --quiet
 cargo clippy --release --all-targets --quiet
-cargo clippy --release --all-targets --features xyz --quiet
 
 # ---- 2. version stamping -----------------------------------------------------
 python3 - "$ver" "${dexver:-}" <<'PY'
@@ -82,7 +77,7 @@ if dexver:
     open(p, 'w').write(s)
 print("stamped")
 PY
-cargo build --release --features xyz --quiet
+cargo build --release --quiet
 # The lockfile must satisfy the workspace's jdc-core requirement: a stale
 # lock silently ships an older jdc-core (v0.1.20 linked 0.2.12 with the
 # fixes in 0.2.13 — `cargo build` does not re-resolve a satisfied pin).

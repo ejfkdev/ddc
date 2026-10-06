@@ -27,12 +27,9 @@ flate2 = { version = "1", default-features = false, features = ["zlib-ng"] }
 libc = "0.2"  # SIGPIPE default disposition (pipe-aware CLIs)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# HTTP REST + MCP frontends (xyz-rust, github.com/ejfkdev/xyz-rust).
-# Off by default: xyz-rust is not on crates.io yet, and a git dependency
-# would block `cargo publish`. The release binaries build with
-# --features xyz; flip this to a crates.io version + non-optional once
-# xyz-rust publishes.
-xyz-rust = { git = "https://github.com/ejfkdev/xyz-rust", optional = true }
+# HTTP REST + MCP frontends: one definition, three interfaces
+# (github.com/ejfkdev/xyz-rust, crates.io xyz-rust).
+xyz-rust = "0.4.3"
 
 ddc-dex = { workspace = true }
 ddc-dec = { workspace = true }
@@ -41,6 +38,3 @@ flate2 = { version = "1", default-features = false, features = ["zlib-ng"] }
 memchr = "2"
 memmap2 = "0.9"
 mimalloc = "0.1.52"
-
-[features]
-xyz = ["dep:xyz-rust"]
