@@ -71,6 +71,43 @@ fn print_serve_help_zh() {
     println!("  #   url: http://127.0.0.1:8080/mcp");
 }
 
+fn print_http_help_en() {
+    println!("ddc http — HTTP REST + OpenAPI only (no MCP endpoint)");
+    println!();
+    println!("Usage: ddc http [FLAGS]");
+    println!();
+    println!("The REST-only form of serve: the 10 query routes and");
+    println!("GET /openapi.json on one port, /mcp NOT mounted (use serve");
+    println!("when MCP clients need the endpoint, mcp when REST is not");
+    println!("wanted at all).");
+    println!();
+    println!("Flags: same as serve — --addr HOST:PORT (default :8080),");
+    println!("  --bearer TOK[,TOK], --timeout 45s, --cors ORIGIN[,ORIG],");
+    println!("  --tls-cert F --tls-key F, --default k=v.");
+    println!();
+    println!("Example:");
+    println!("  ddc http --addr 127.0.0.1:8080");
+    println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+}
+
+fn print_http_help_zh() {
+    println!("ddc http — 仅 HTTP REST + OpenAPI（无 MCP 端点）");
+    println!();
+    println!("用法：ddc http [旗标]");
+    println!();
+    println!("serve 的纯 REST 形态：一个端口上挂 10 条查询路由与 GET");
+    println!("/openapi.json，不挂 /mcp（MCP 客户端要端点用 serve；完全不");
+    println!("要 REST 用 mcp）。");
+    println!();
+    println!("旗标：与 serve 相同 —— --addr 主机:端口（默认 :8080）、");
+    println!("  --bearer 令牌[,令牌]、--timeout 45s、--cors 来源[,来源]、");
+    println!("  --tls-cert F --tls-key F、--default k=v。");
+    println!();
+    println!("示例：");
+    println!("  ddc http --addr 127.0.0.1:8080");
+    println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+}
+
 fn print_mcp_help_en() {
     println!("ddc mcp — MCP tool server (no REST routes)");
     println!();
@@ -142,6 +179,10 @@ pub(crate) fn print_mode_help(mode: &str) {
         "serve" => match crate::lang::lang() {
             crate::lang::Lang::Zh => print_serve_help_zh(),
             crate::lang::Lang::En => print_serve_help_en(),
+        },
+        "http" => match crate::lang::lang() {
+            crate::lang::Lang::Zh => print_http_help_zh(),
+            crate::lang::Lang::En => print_http_help_en(),
         },
         "mcp" => match crate::lang::lang() {
             crate::lang::Lang::Zh => print_mcp_help_zh(),

@@ -62,6 +62,7 @@ fn print_help_en() {
     println!("  ddc [OPTIONS] <INPUT>... [OUTPUT]     full decompile");
     println!("  ddc <SUBCOMMAND> [ARGS...]            metadata query, no full decompile");
     println!("  ddc serve [--addr HOST:PORT]          HTTP REST + OpenAPI + MCP endpoint");
+    println!("  ddc http  [--addr HOST:PORT]          HTTP REST + OpenAPI only");
     println!("  ddc mcp stdio|http                    MCP tool server (10 query tools)");
     println!("  ddc help [SUBCOMMAND]                 this help, or one command's");
     println!("  ddc version | -h | -V");
@@ -151,6 +152,7 @@ fn print_help_en() {
     println!("                             and output schemas: ddc.getclass, ...)");
     println!("  ddc mcp http               MCP-only streamable server (loopback host");
     println!("                             by default); serve serves the same /mcp");
+    println!("  ddc http --addr :8080      REST + OpenAPI only, no /mcp endpoint");
     println!("  `ddc help serve` / `ddc help mcp` document every flag and endpoint.");
     println!();
     println!("Exit status: 0 success; 1 some classes failed; 2 usage error.");
@@ -188,6 +190,7 @@ fn print_help_zh() {
     println!("  ddc [选项] <输入>... [输出]           全量反编译");
     println!("  ddc <子命令> [参数...]                元数据查询，不做全量反编译");
     println!("  ddc serve [--addr 主机:端口]          HTTP REST + OpenAPI + MCP 端点");
+    println!("  ddc http  [--addr 主机:端口]          仅 HTTP REST + OpenAPI");
     println!("  ddc mcp stdio|http                    MCP 工具服务器（10 个查询工具）");
     println!("  ddc help [子命令]                     本帮助，或单个子命令的说明");
     println!("  ddc version | -h | -V");
@@ -270,6 +273,7 @@ fn print_help_zh() {
     println!("                             ddc.getclass、ddc.findrefs、…）");
     println!("  ddc mcp http               纯 MCP 流式服务器（默认仅回环 Host）；");
     println!("                             serve 的 /mcp 是同一协议");
+    println!("  ddc http --addr :8080      仅 REST + OpenAPI，不挂 /mcp 端点");
     println!("  `ddc help serve` / `ddc help mcp` 给出全部旗标与端点说明。");
     println!();
     println!("退出码：0 成功；1 部分类失败；2 用法错误。");
@@ -1096,7 +1100,7 @@ fn main() {
             match args.get(1).map(String::as_str) {
                 // `ddc help <subcommand>`: that command's own signature.
                 Some(topic) if !topic.starts_with('-') => {
-                    if topic == "serve" || topic == "mcp" {
+                    if topic == "serve" || topic == "http" || topic == "mcp" {
                         mode_help::print_mode_help(topic);
                     } else if is_subcommand(topic) {
                         print_subcommand_help(topic);
@@ -1129,11 +1133,11 @@ fn main() {
     // Flag-leading invocations never reach here (the existing option
     // parser owns them).
     if let Some(first) = args.first() {
-        if first == "serve" || first == "mcp" {
-            // `ddc serve -h` / `ddc mcp -h`: the mode's own card. Printed
-            // here because the xyz serve parser has no -h arm (it would
-            // start the server and block); `ddc help serve|help mcp`
-            // prints the same card.
+        if first == "serve" || first == "http" || first == "mcp" {
+            // `ddc serve|http|mcp -h`: the mode's ddc-specific card
+            // (routes, tools, connection examples). xyz 0.4.4 prints its
+            // own generic mode help for these too — the interception
+            // here keeps the ddc detail; `ddc help <mode>` matches.
             if args[1..].iter().any(|a| a == "-h" || a == "--help") {
                 mode_help::print_mode_help(first);
                 return;
