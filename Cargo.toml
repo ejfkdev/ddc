@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/ddc-dex", "crates/ddc-dec", "crates/ddc-cli"]
 
 [workspace.package]
-version = "0.1.26"
+version = "0.1.27"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/ejfkdev/ddc"
@@ -13,8 +13,8 @@ keywords = ["decompiler", "dex", "dalvik", "android", "reverse-engineering"]
 categories = ["command-line-utilities", "development-tools::debugging"]
 
 [workspace.dependencies]
-ddc-dex = { path = "crates/ddc-dex", version = "0.2.5" }
-ddc-dec = { path = "crates/ddc-dec", version = "0.1.26" }
+ddc-dex = { path = "crates/ddc-dex", version = "0.2.0" }
+ddc-dec = { path = "crates/ddc-dec", version = "0.1.27" }
 jdc-core = "0.2.16"
 anyhow = "1"
 
