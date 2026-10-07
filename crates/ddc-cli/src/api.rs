@@ -610,7 +610,8 @@ pub fn disasm_text(input: &Path, target: &str, dex_filters: &[String]) -> Result
 
 // ---- findrefs ----------------------------------------------------------------
 
-/// Cross-references to a query (string/type/method/field). Mirrors the
+/// Cross-references to a query (string/type/method/field; `class` is
+/// accepted as an alias of `type`). Mirrors the
 /// `findrefs` command: the pipelined scan drops each image after
 /// scanning, so resident memory stays bounded.
 pub fn ref_rows(
@@ -623,7 +624,8 @@ pub fn ref_rows(
 ) -> Result<Vec<RefRow>> {
     let q = match kind {
         "string" => crate::findrefs::FindQuery::String(query.to_string()),
-        "type" => crate::findrefs::FindQuery::Type(query.to_string()),
+        // `class` is the plain-word alias for `type` — same search.
+        "type" | "class" => crate::findrefs::FindQuery::Type(query.to_string()),
         "method" => crate::findrefs::FindQuery::Method {
             class: class.map(|c| c.to_string()),
             name: query.to_string(),
@@ -634,7 +636,7 @@ pub fn ref_rows(
             name: query.to_string(),
             fuzzy_class,
         },
-        other => bail!("findrefs: unknown kind {other:?} (string|type|method|field)"),
+        other => bail!("findrefs: unknown kind {other:?} (string|type|class|method|field)"),
     };
     let (hits, _t) = crate::findrefs_scan(input, &q, dex_filters)?;
     let mut rows: Vec<RefRow> = hits

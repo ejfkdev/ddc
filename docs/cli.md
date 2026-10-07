@@ -196,9 +196,11 @@ clean (timing prints only with `-o`).
   table (one row per string). `-f` filters by substring;
   `--with-locations` walks every method's const-string sites and adds a
   `used-by` column mapping each hit to its owner methods.
-- **`ddc findrefs <input> <string|type|method|field> <query> [--class
+- **`ddc findrefs <input> <string|type|class|method|field> <query> [--class
   FQCN] [--fuzzy-class] [-o FILE]`** — every reference to a string
-  literal / type / method call site / field access. Output is columnar
+  literal / type / method call site / field access (`class` is a plain-
+  word alias for `type`; definition-level relations such as
+  extends/implements belong to `ddc hierarchy`). Output is columnar
   with a header (`dex kind class method refs`), **one row per method**:
   multiple hits aggregate into `refs` (`; `-separated, deduped); `kind`
   is the first hit's instruction. Match semantics: queries are

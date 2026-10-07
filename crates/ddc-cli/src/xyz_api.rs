@@ -111,7 +111,7 @@ fn getmethod(_ctx: &Ctx, a: &GetMethodArgs) -> XyzResult<api::MethodSource> {
 struct FindRefsArgs {
     #[xyz(desc = "input: APK / dex / container", required)]
     input: String,
-    #[xyz(desc = "reference kind", required, enum = "string,type,method,field")]
+    #[xyz(desc = "reference kind (class = type alias)", required, enum = "string,type,class,method,field")]
     kind: String,
     #[xyz(desc = "query: literal substring / type name / member name", required)]
     query: String,

@@ -117,7 +117,7 @@ fn print_help_en() {
     println!("  Search:");
     println!("    strings <input> [-f TEXT] [--with-locations]");
     println!("                                    string table, owning methods");
-    println!("    findrefs <input> string|type|method|field NAME [--class FQCN]");
+    println!("    findrefs <input> string|type|class|method|field NAME [--class FQCN]");
     println!("                                    cross-references to a query");
     println!("    callers <input> NAME [FQCN]     methods invoking NAME");
     println!("    members <input> [NAME] [--class FQCN] [--method|--field]");
@@ -240,7 +240,7 @@ fn print_help_zh() {
     println!("  检索：");
     println!("    strings <输入> [-f 文本] [--with-locations]");
     println!("                                    字符串表及引用方法");
-    println!("    findrefs <输入> string|type|method|field 名字 [--class FQCN]");
+    println!("    findrefs <输入> string|type|class|method|field 名字 [--class FQCN]");
     println!("                                    对查询目标的交叉引用");
     println!("    callers <输入> 名字 [FQCN]      调用该名字方法的所有方法");
     println!("    members <输入> [名字] [--class FQCN] [--method|--field]");
@@ -457,8 +457,8 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             desc: "cross-references: every method site referencing the query",
             usage: "ddc findrefs <INPUT> <KIND> <QUERY> [options]",
             args: &[
-                ("KIND", "string | type | method | field"),
-                ("QUERY", "the string, type, method, or field name to resolve"),
+                ("KIND", "string | type | class | method | field (class = type)"),
+                ("QUERY", "the string, type, or member name to resolve"),
             ],
             opts: &[
                 ("-C, --class FQCN", "owner class for method/field queries (exact unless --fuzzy-class)"),
@@ -469,6 +469,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
             ],
             examples: &[
                 ("ddc findrefs app.apk string api_key", "every \"api_key\" string-literal site"),
+                ("ddc findrefs app.apk class okhttp3.OkHttpClient", "code usage of the class (new/check-cast/instance-of)"),
                 ("ddc findrefs app.apk method onCreate --class android/app/Activity", "invoke sites of Activity.onCreate"),
                 ("ddc findrefs app.apk field CREATOR", "reads/writes of fields named CREATOR"),
             ],
@@ -740,8 +741,8 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
             desc: "交叉引用：引用查询目标的全部方法位点",
             usage: "ddc findrefs <输入> <KIND> <QUERY> [选项]",
             args: &[
-                ("KIND", "string | type | method | field"),
-                ("QUERY", "要解析的字符串/类型/方法/字段名"),
+                ("KIND", "string | type | class | method | field（class 即 type）"),
+                ("QUERY", "要解析的字符串/类型/成员名"),
             ],
             opts: &[
                 ("-C, --class FQCN", "method/field 查询的所属类（默认精确，--fuzzy-class 改模糊）"),
@@ -752,6 +753,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
             ],
             examples: &[
                 ("ddc findrefs app.apk string api_key", "每个 \"api_key\" 字符串字面量位点"),
+                ("ddc findrefs app.apk class okhttp3.OkHttpClient", "类在代码中的使用（new/check-cast/instance-of）"),
                 ("ddc findrefs app.apk method onCreate --class android/app/Activity", "Activity.onCreate 的调用点"),
                 ("ddc findrefs app.apk field CREATOR", "名为 CREATOR 的字段读写"),
             ],
@@ -2349,8 +2351,8 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
         bail!(
             "{}",
             bif!(
-                "findrefs needs <input> <string|type|method|field> <query> (method/field also take --class X, --fuzzy-class)",
-                "findrefs 需要 <输入> <string|type|method|field> <查询>（method/field 还可加 --class X、--fuzzy-class）"
+                "findrefs needs <input> <string|type|class|method|field> <query> (method/field also take --class X, --fuzzy-class)",
+                "findrefs 需要 <输入> <string|type|class|method|field> <查询>（method/field 还可加 --class X、--fuzzy-class）"
             )
         );
     }
@@ -2359,7 +2361,8 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
     let value = positionals[2].clone();
     let query = match kind.as_str() {
         "string" => findrefs::FindQuery::String(value),
-        "type" => findrefs::FindQuery::Type(value),
+        // `class` is the plain-word alias for `type` — same search.
+        "type" | "class" => findrefs::FindQuery::Type(value),
         "method" => findrefs::FindQuery::Method {
             class,
             name: value,
@@ -2372,7 +2375,7 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
         },
         other => bail!(
             "{}",
-            bif!("findrefs: unknown kind {0:?} (string|type|method|field)", "findrefs：未知类别 {0:?}（string|type|method|field）"; other)
+            bif!("findrefs: unknown kind {0:?} (string|type|class|method|field)", "findrefs：未知类别 {0:?}（string|type|class|method|field）"; other)
         ),
     };
 

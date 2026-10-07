@@ -173,12 +173,14 @@ curl '127.0.0.1:8080/findrefs?input=app.apk&kind=string&query=token'
 - **`ddc strings <输入> [-f 文本] [--with-locations]`** —— 字符串表（每串
   一行）。`-f` 子串过滤；`--with-locations` 遍历每个方法的 const-string
   指令，加一列 `used-by` 把命中映射到所属方法。
-- **`ddc findrefs <输入> <string|type|method|field> <查询> [--class FQCN]
-  [--fuzzy-class] [-o FILE]`** —— 字符串字面量 / 类型 / 方法调用点 / 字段
-  访问的全部引用。输出列式带表头（`dex kind class method refs`），
-  **一个方法一行**：同类多次命中聚合进 refs（`; ` 分隔、去重）；kind 为
-  首次命中的指令。匹配语义：查询是大小写不敏感子串；`--class` 默认精确
-  （点分、斜杠、`L…;` 描述符形式都归一化），`--fuzzy-class` 变子串。
+- **`ddc findrefs <输入> <string|type|class|method|field> <查询> [--class
+  FQCN] [--fuzzy-class] [-o 文件]`** —— 字符串字面量 / 类型 / 方法调用点 /
+  字段访问的全部引用（`class` 是 `type` 的常用词别名；继承/实现等定义级
+  关系请用 `ddc hierarchy`）。输出列式带表头（`dex kind class method
+  refs`），**一个方法一行**：同类多次命中聚合进 refs（`; ` 分隔、去重）；
+  kind 为首次命中的指令。匹配语义：查询是大小写不敏感子串；`--class`
+  默认精确（点分、斜杠、`L…;` 描述符形式都归一化），`--fuzzy-class` 变
+  子串。
 - **`ddc callers <输入> 名字 [FQCN]`** —— 谁调用了这个方法（复用
   findrefs 的方法扫描，可选限定到一个类）。
 - **`ddc members <输入> [名字] [--class FQCN] [--fuzzy-class]
