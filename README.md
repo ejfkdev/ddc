@@ -36,7 +36,8 @@ parses cleanly.
   synthetic `access$NNN` bridges inline at their call sites.
 - **Reproducible output** — no timestamps; two runs diff cleanly.
 - **HTTP REST + MCP, built in** ([xyz-rust](https://github.com/ejfkdev/xyz-rust)):
-  `ddc serve` exposes every query as a REST route plus `GET
+  `ddc serve` exposes every query as a REST route (GET with query
+  params or POST with a JSON body) plus `GET
   /openapi.json` and a streamable MCP endpoint at `/mcp` — point an
   MCP client at `http://addr/mcp`; `ddc http` is REST-only (no
   `/mcp`); `ddc mcp stdio|http` runs the same commands as MCP tools

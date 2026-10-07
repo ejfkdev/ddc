@@ -222,9 +222,11 @@ fn skip_cli() -> CliHints {
     CliHints { skip: true, ..Default::default() }
 }
 
-fn http(method: &str, path: &str) -> HTTPHints {
+/// 空 method = xyz §11.1 默认双路由：GET 绑 query、POST 绑 JSON body
+/// （query 同样生效，body 缺席键由 query 补齐）。
+fn http(path: &str) -> HTTPHints {
     HTTPHints {
-        method: method.into(),
+        method: String::new(),
         path: path.into(),
         ..Default::default()
     }
@@ -244,53 +246,53 @@ pub fn run(args: Vec<String>) -> i32 {
     xyz_rust::define("ddc.info", info)
         .summary("App context and per-image statistics")
         .cli(skip_cli())
-        .http(http("GET", "/info"))
+        .http(http("/info"))
         .mcp(mcp_read())
         .also(&[
             &xyz_rust::define("ddc.listclasses", listclasses)
                 .summary("List class names, optionally filtered")
                 .cli(skip_cli())
-                .http(http("GET", "/classes"))
+                .http(http("/classes"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.getclass", getclass)
                 .summary("Decompile one class (nested classes included)")
                 .cli(skip_cli())
-                .http(http("GET", "/class"))
+                .http(http("/class"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.getmethod", getmethod)
                 .summary("Decompile one method, all overloads")
                 .cli(skip_cli())
-                .http(http("GET", "/method"))
+                .http(http("/method"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.findrefs", findrefs)
                 .summary("Cross-references to a string / type / method / field")
                 .cli(skip_cli())
-                .http(http("GET", "/findrefs"))
+                .http(http("/findrefs"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.strings", strings)
                 .summary("String table, optionally with referencing methods")
                 .cli(skip_cli())
-                .http(http("GET", "/strings"))
+                .http(http("/strings"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.hierarchy", hierarchy)
                 .summary("Supertypes and subtypes of a class")
                 .cli(skip_cli())
-                .http(http("GET", "/hierarchy"))
+                .http(http("/hierarchy"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.disasm", disasm)
                 .summary("Raw bytecode listing of a class or method")
                 .cli(skip_cli())
-                .http(http("GET", "/disasm"))
+                .http(http("/disasm"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.manifest", manifest)
                 .summary("AndroidManifest.xml as text XML")
                 .cli(skip_cli())
-                .http(http("GET", "/manifest"))
+                .http(http("/manifest"))
                 .mcp(mcp_read()),
             &xyz_rust::define("ddc.mainactivity", mainactivity)
                 .summary("Package and launcher activity, verified in the dex")
                 .cli(skip_cli())
-                .http(http("GET", "/mainactivity"))
+                .http(http("/mainactivity"))
                 .mcp(mcp_read()),
         ])
         .run_args(args)

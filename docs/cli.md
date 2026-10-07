@@ -118,11 +118,14 @@ add `--versions` (spec revisions), `--stateless`, `--session-timeout`,
 
 An MCP client connects to `http://<addr>/mcp` when serve is running
 (the endpoint answers plain curl GETs with 406 — it speaks the MCP
-streamable protocol); REST examples:
+streamable protocol). Each REST route accepts both GET (query
+params) and POST (JSON body); REST examples:
 
 ```bash
 ddc serve --addr 127.0.0.1:8080
 curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'
+curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \
+    -d '{"input":"app.apk","class":"com.example.Foo"}'
 curl '127.0.0.1:8080/findrefs?input=app.apk&kind=string&query=token'
 # Claude Desktop: mcpServers → { ddc: { command: ddc, args: [mcp, stdio] } }
 ```

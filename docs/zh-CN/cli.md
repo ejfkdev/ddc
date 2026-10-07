@@ -108,11 +108,14 @@ Authorization: Bearer）、`--timeout`、`--cors`、`--tls-cert` +
 `--server-version`。
 
 serve 运行时 MCP 客户端连接 `http://<地址>/mcp`（该端点对普通 curl
-GET 返回 406 —— 它讲 MCP 流式协议）；REST 示例：
+GET 返回 406 —— 它讲 MCP 流式协议）。每条 REST 路由同时接受 GET
+（query 参数）与 POST（JSON body）；REST 示例：
 
 ```bash
 ddc serve --addr 127.0.0.1:8080
 curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'
+curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \
+    -d '{"input":"app.apk","class":"com.example.Foo"}'
 curl '127.0.0.1:8080/findrefs?input=app.apk&kind=string&query=token'
 # Claude Desktop：mcpServers → { ddc: { command: ddc, args: [mcp, stdio] } }
 ```

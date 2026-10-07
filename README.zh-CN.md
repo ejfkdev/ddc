@@ -31,7 +31,8 @@
   `access$NNN` 桥在调用点内联。
 - **可复现输出** —— 无时间戳，两次运行 diff 干净。
 - **HTTP REST + MCP，开箱内置**（[xyz-rust](https://github.com/ejfkdev/xyz-rust)）：
-  `ddc serve` 把每个查询命令暴露为 REST 路由 + `GET /openapi.json` +
+  `ddc serve` 把每个查询命令暴露为 REST 路由（GET 绑 query 参数，
+  POST 亦接受 JSON body）+ `GET /openapi.json` +
   流式 MCP 端点 `/mcp`（MCP 客户端直接指向 `http://地址/mcp`）；
   `ddc http` 是纯 REST 形态（不挂 `/mcp`）；`ddc mcp stdio|http` 把
   同一批命令作为带输入/输出 schema 的 MCP 工具运行。查询子命令支持

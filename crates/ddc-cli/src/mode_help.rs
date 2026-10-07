@@ -11,9 +11,10 @@ fn print_serve_help_en() {
     println!("Starts one network process serving three fronts on the same");
     println!("address:");
     println!("  REST              the 10 query commands as routes");
-    println!("                    (GET /info, /classes, /class, /method, /findrefs,");
-    println!("                    /strings, /hierarchy, /disasm, /manifest,");
-    println!("                    /mainactivity)");
+    println!("                    (GET/POST /info, /classes, /class, /method,");
+    println!("                    /findrefs, /strings, /hierarchy, /disasm,");
+    println!("                    /manifest, /mainactivity; GET binds query");
+    println!("                    params, POST also accepts a JSON body)");
     println!("  GET /openapi.json the OpenAPI 3 document for those routes");
     println!("  GET /healthz      liveness probe");
     println!("  /mcp              streamable MCP endpoint — point an MCP client");
@@ -34,6 +35,8 @@ fn print_serve_help_en() {
     println!("Examples:");
     println!("  ddc serve --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!("  curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \\");
+    println!("      -d '{{\"input\":\"app.apk\",\"class\":\"com.example.Foo\"}}'");
     println!();
     println!("  # bearer auth + TLS + CORS, one process:");
     println!("  ddc serve --addr 0.0.0.0:8443 --bearer tok1,tok2 \\");
@@ -55,9 +58,10 @@ fn print_serve_help_zh() {
     println!();
     println!("启动一个网络进程，同一地址上服务三个前端：");
     println!("  REST              10 个查询命令即路由");
-    println!("                    （GET /info、/classes、/class、/method、/findrefs、");
-    println!("                    /strings、/hierarchy、/disasm、/manifest、");
-    println!("                    /mainactivity）");
+    println!("                    （GET/POST /info、/classes、/class、/method、");
+    println!("                    /findrefs、/strings、/hierarchy、/disasm、");
+    println!("                    /manifest、/mainactivity；GET 绑 query 参数，");
+    println!("                    POST 还接受 JSON body）");
     println!("  GET /openapi.json 上述路由的 OpenAPI 3 文档");
     println!("  GET /healthz      存活探针");
     println!("  /mcp              流式 MCP 端点 —— 把 MCP 客户端指向");
@@ -77,6 +81,8 @@ fn print_serve_help_zh() {
     println!("示例：");
     println!("  ddc serve --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!("  curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \\");
+    println!("      -d '{{\"input\":\"app.apk\",\"class\":\"com.example.Foo\"}}'");
     println!();
     println!("  # 凭据 + TLS + CORS，一个进程：");
     println!("  ddc serve --addr 0.0.0.0:8443 --bearer tok1,tok2 \\");
@@ -96,7 +102,8 @@ fn print_http_help_en() {
     println!();
     println!("Usage: ddc http [FLAGS]");
     println!();
-    println!("The REST-only form of serve: the 10 query routes and");
+    println!("The REST-only form of serve: the 10 query routes (GET+POST, GET");
+    println!("binds query params, POST also accepts a JSON body) and");
     println!("GET /openapi.json on one port, /mcp NOT mounted (use serve");
     println!("when MCP clients need the endpoint, mcp when REST is not");
     println!("wanted at all).");
@@ -108,6 +115,8 @@ fn print_http_help_en() {
     println!("Examples:");
     println!("  ddc http --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!("  curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \\");
+    println!("      -d '{{\"input\":\"app.apk\",\"class\":\"com.example.Foo\"}}'");
     println!("  curl '127.0.0.1:8080/openapi.json' | python3 -m json.tool | head");
     println!();
     println!("  # bearer auth + TLS:");
@@ -122,8 +131,9 @@ fn print_http_help_zh() {
     println!();
     println!("用法：ddc http [旗标]");
     println!();
-    println!("serve 的纯 REST 形态：一个端口上挂 10 条查询路由与 GET");
-    println!("/openapi.json，不挂 /mcp（MCP 客户端要端点用 serve；完全不");
+    println!("serve 的纯 REST 形态：一个端口上挂 10 条查询路由（GET+POST，GET");
+    println!("绑 query 参数，POST 还接受 JSON body）与 GET /openapi.json；");
+    println!("/mcp 不挂载（MCP 客户端要端点用 serve；完全不");
     println!("要 REST 用 mcp）。");
     println!();
     println!("旗标：与 serve 相同 —— --addr 主机:端口（默认 :8080）、");
@@ -133,6 +143,8 @@ fn print_http_help_zh() {
     println!("示例：");
     println!("  ddc http --addr 127.0.0.1:8080");
     println!("  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'");
+    println!("  curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \\");
+    println!("      -d '{{\"input\":\"app.apk\",\"class\":\"com.example.Foo\"}}'");
     println!("  curl '127.0.0.1:8080/openapi.json' | python3 -m json.tool | head");
     println!();
     println!("  # 凭据 + TLS：");
