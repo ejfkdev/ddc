@@ -309,15 +309,15 @@ dependencies = [
 
 [[package]]
 name = "cure-engine"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a329dd0f70c5e6483ea8fbc89b1a7d2e8239873fc181623943f8002b4fd22af"
+checksum = "58b9c679f369663548db425b111112a57e43b26f44f474b7ac4e7cb13b8fcf03"
 
 [[package]]
 name = "cure-java-ast"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a4aa6adbce03e78ed1379fd59e4524502bfbc15b98e16f68a99aec4560618f0"
+checksum = "8d828f576f7cbc8bb32770d226173394bb9fee6c77f1ac7b1fac64558e09de6b"
 dependencies = [
  "cure-engine",
  "cure-tree",
@@ -325,9 +325,9 @@ dependencies = [
 
 [[package]]
 name = "cure-java-parser"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8ac2589ea5ae85faacffa50cba473db4126d13c22b07b664ac94594967a9273"
+checksum = "b766c8bc48fe0cefda6999deca4bdb792eabc78f3d52316a8db1660f07ffc2ce"
 dependencies = [
  "cure-engine",
  "cure-java-ast",
@@ -335,18 +335,18 @@ dependencies = [
 
 [[package]]
 name = "cure-java-print"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c934f2703e0805dbda96253f1813d287d373a36a81175355820f59f87d2813bf"
+checksum = "9f1d6e50dca0e684410e782ef4e17517a9016ea29b429e25ad3afde265710c8a"
 dependencies = [
  "cure-java-ast",
 ]
 
 [[package]]
 name = "cure-java-simplify"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13994dc320ebc29a2779efc8b2e4c7e7a940523b979555930c15d56558744742"
+checksum = "f47690b5a60ed18015dd2f1236ecc13aa36d67b480ab48e3d88d1d655beac65e"
 dependencies = [
  "cure-engine",
  "cure-java-ast",
@@ -354,9 +354,9 @@ dependencies = [
 
 [[package]]
 name = "cure-tree"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "971b96524ea60b02f23336a070cc67a3fa82543ef11048153c8115127ac6de26"
+checksum = "215fbf56d78e60b37a5862e0fb421594f33401abb53c62639e3d932ebf1855c7"
 dependencies = [
  "cure-engine",
 ]
