@@ -13,10 +13,10 @@ anyhow = { workspace = true }
 # cure 源码级后处理（反编译产物规范化：拷贝内联/三元化/死存储清除/
 # while→for-each/StringBuilder 链等语义保持简化；详见 crates/ddc-dec/
 # src/cure_pass.rs）。零外部依赖的纯 Rust 栈。
-cure-engine = "0.1.1"
-cure-java-parser = "0.1.1"
-cure-java-simplify = "0.1.1"
-cure-java-print = "0.1.1"
+cure-engine = "0.1.2"
+cure-java-parser = "0.1.2"
+cure-java-simplify = "0.1.2"
+cure-java-print = "0.1.2"
 
 [features]
 visit-stats = ["jdc-core/visit-stats"]
