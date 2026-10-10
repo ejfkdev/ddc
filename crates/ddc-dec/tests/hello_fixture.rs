@@ -105,8 +105,11 @@ fn array_multiconsume_materializes_once() {
     )
     .map_err(|e| anyhow::anyhow!("{:#}", e))
     .unwrap();
+    // cure's decl_assign_merge/array-literal normalization: the
+    // declaration-position `new byte[] {…}` becomes the equivalent
+    // shorthand initializer `{…}` (assignments keep the explicit form).
     assert!(
-        out.contains("new byte[] {1, 2, 3, 4"),
+        out.contains("byte[] v0 = {1, 2, 3, 4"),
         "fill-array-data literal:\n{}",
         out
     );

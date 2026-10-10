@@ -662,7 +662,6 @@ pub fn decompile_method(
         // ran BEFORE the ctor passes, so re-run it on their output.
         passes::drop_dead_locals(&mut body);
     }
-        passes::strip_trailing_void_return(&mut body);
         passes::cleanup(&mut body);
         passes::invert_empty_thens(&mut body);
         passes::fold_short_circuits(&mut body);
@@ -670,7 +669,6 @@ pub fn decompile_method(
     passes::dedupe_multicatch(&mut body, pool);
     passes::strip_phantom_field_writes(&mut body, pool);
     passes::init_bare_decls(&mut body, &vt);
-    passes::final_dead_assigns(&mut body);
         if !errors.is_empty() {
             passes::prepend_comment(
                 &mut body,
@@ -897,7 +895,6 @@ pub fn decompile_method(
     if mflags.has_sb() {
         passes::fold_string_builders(&mut body, &vt);
     }
-    passes::ternary_fold(&mut body);
     passes::drop_empty_finallies(&mut body);
     passes::drop_pure_value_stmts(&mut body);
     if mflags.has_monitor() {
@@ -1021,7 +1018,6 @@ pub fn decompile_method(
     if &*m.name == "<clinit>" {
         passes::strip_clinit_returns(&mut body);
     }
-    passes::strip_trailing_void_return(&mut body);
     passes::cleanup(&mut body);
     // Short-circuit folding last: the diamond shapes are final only
     // after cleanup merges singleton blocks.
@@ -1031,7 +1027,6 @@ pub fn decompile_method(
     passes::dedupe_multicatch(&mut body, pool);
     passes::strip_phantom_field_writes(&mut body, pool);
     passes::init_bare_decls(&mut body, &vt);
-    passes::final_dead_assigns(&mut body);
 
     if std::env::var("DDC_DBG_PHI").is_ok() {
         for (id, v) in vt.vars.iter().enumerate() {

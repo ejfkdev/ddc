@@ -16,11 +16,18 @@ use ddc_dex::insn::InsnKind;
 pub struct ClassOptions {
     /// Prefix each file with a provenance comment.
     pub provenance: bool,
+    /// Run the cure source-level post-pass (semantic-preserving
+    /// normalization of decompiler residue: copy inlining, ternaries,
+    /// for-each, dead stores…). `--no-cure` turns it off.
+    pub cure: bool,
 }
 
 impl Default for ClassOptions {
     fn default() -> Self {
-        ClassOptions { provenance: true }
+        ClassOptions {
+            provenance: true,
+            cure: true,
+        }
     }
 }
 
@@ -390,6 +397,11 @@ fn decompile_class_impl(
     }
     out.push('\n');
     out.push_str(&body_buf);
+    // cure 源码级后处理：IR pass 之后的源码层净化（拷贝内联/三元化/
+    // for-each 还原…）。$DDC 标记文件与解析失败原样返回（见 cure_pass）。
+    if opts.cure {
+        out = crate::cure_pass::simplify_source(out);
+    }
     Ok(out)
 }
 

@@ -6,6 +6,7 @@
 //! DEX metadata (no signatures, no generics).
 
 pub mod cfg;
+pub mod cure_pass;
 pub mod classdec;
 pub mod fwdb;
 

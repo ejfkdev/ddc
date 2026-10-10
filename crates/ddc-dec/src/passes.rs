@@ -1599,39 +1599,6 @@ pub fn count_localdefs(s: &Stmt, out: &mut usize) {
     });
 }
 
-/// Drop a trailing `return;` (d8's explicit return-void at method end).
-pub fn strip_trailing_void_return(s: &mut Stmt) {
-    if let Stmt::Block(v) = s {
-        loop {
-            match v.last_mut() {
-                Some(Stmt::Return(None)) => {
-                    v.pop();
-                }
-                // The structurer can close a region in a bare nested
-                // block; a `return;` at its tail is still a dangling
-                // statement (inside a static initializer it is illegal
-                // outright — clinit's closing return).
-                Some(Stmt::Block(_)) => {
-                    let last = v.last_mut().unwrap();
-                    let before = match last {
-                        Stmt::Block(b) => b.len(),
-                        _ => 0,
-                    };
-                    strip_trailing_void_return(last);
-                    let after = match last {
-                        Stmt::Block(b) => b.len(),
-                        _ => 0,
-                    };
-                    if after == before {
-                        break; // nothing stripped inside
-                    }
-                }
-                _ => break,
-            }
-        }
-    }
-}
-
 /// `if (c) { } else { B }` → `if (!c) { B }` — the empty-then shape is
 /// how the structurer lands an inverted diamond, and source never writes
 /// it (jadx prints the positive form). negate() carries De Morgan so
@@ -2045,110 +2012,6 @@ pub fn desugar_cmp_residuals(s: &mut Stmt) {
     });
 }
 
-/// `if (c) { x = A; } else { x = B; }` → `x = c ? A : B;`
-pub fn ternary_fold(s: &mut Stmt) {
-    let mut changed = true;
-    let mut guard = 0;
-    while changed && guard < 8 {
-        changed = false;
-        guard += 1;
-        ternary_fold_walk(s, &mut changed);
-        strip_empty(s);
-    }
-}
-
-fn ternary_fold_walk(s: &mut Stmt, changed: &mut bool) {
-    if let Stmt::Block(v) = s {
-        for x in v.iter_mut() {
-            ternary_fold_walk(x, changed);
-        }
-        return;
-    }
-    let Stmt::If {
-        cond,
-        then_stmt,
-        else_stmt,
-    } = s
-    else {
-        return;
-    };
-    ternary_fold_walk(then_stmt, changed);
-    if let Some(e) = else_stmt {
-        ternary_fold_walk(e, changed);
-    }
-    let Some(else_b) = else_stmt else { return };
-    let target_of = |st: &Stmt| -> Option<u32> {
-        let Stmt::ExprStmt(Expr::Assign { target, .. }) = st else {
-            return None;
-        };
-        if let Expr::Local { var, .. } = &**target {
-            Some(*var)
-        } else {
-            None
-        }
-    };
-    let (Stmt::Block(tv), Stmt::Block(ev)) = (then_stmt.as_mut(), else_b.as_mut()) else {
-        return;
-    };
-    if tv.len() != 1 || ev.len() != 1 {
-        return;
-    }
-    let (Some(vt_), Some(ve)) = (target_of(&tv[0]), target_of(&ev[0])) else {
-        return;
-    };
-    if vt_ != ve {
-        return;
-    }
-    // The condition and both values must not re-assign the target between
-    // the fold — they are single statements, so a mention is a re-read at
-    // worst; re-assignment only happens via assignments inside them.
-    let mut touched = HashSet::default();
-    let (Stmt::ExprStmt(a_then), Stmt::ExprStmt(a_else)) = (&tv[0], &ev[0]) else {
-        return;
-    };
-    if let Expr::Assign { value, .. } = a_then {
-        collect_vars(value, &mut touched);
-    }
-    if let Expr::Assign { value, .. } = a_else {
-        collect_vars(value, &mut touched);
-    }
-    if touched.contains(&vt_) {
-        return;
-    }
-    let value_then = match a_then {
-        Expr::Assign { value, .. } => value.clone(),
-        _ => return,
-    };
-    let value_else = match a_else {
-        Expr::Assign { value, .. } => value.clone(),
-        _ => return,
-    };
-    let cond_e = cond.clone();
-    let folded = Stmt::ExprStmt(Expr::Assign {
-        target: Box::new(Expr::Local {
-            var: vt_,
-            ty: vt_join_ty(&value_then, &value_else),
-        }),
-        op: AssignOp::Plain,
-        value: Box::new(Expr::Cond {
-            c: Box::new(cond_e),
-            t: value_then,
-            f: value_else,
-        }),
-    });
-    *s = Stmt::Block(vec![folded]);
-    *changed = true;
-}
-
-fn vt_join_ty(a: &Expr, b: &Expr) -> TypeRef {
-    let ta = a.type_ref();
-    let tb = b.type_ref();
-    if ta.erased() == tb.erased() {
-        return ta;
-    }
-    TypeRef::J(JavaType::Object("java/lang/Object".into()))
-}
-
 /// Fold `new StringBuilder(...).append(x)...toString()` chains into
 /// `StringConcat`. Single-assignment temporaries carry the chain.
 ///
@@ -2528,45 +2391,6 @@ pub fn drop_empty_finallies(body: &mut Stmt) {
         }
         let inner = std::mem::replace(&mut **b, Stmt::Block(vec![]));
         *st = inner;
-    });
-}
-
-/// Last-chance dead-assignment sweep: `v = <pure value>` where `v` is
-/// never read ANYWHERE is semantically dead regardless of which late
-/// pass minted it (phi remnant, ctor diamond fold, scope-leaked temp —
-/// the regular drop_dead_locals runs mid-pipeline and misses statements
-/// minted after it). The pure gate keeps every observable side effect.
-pub fn final_dead_assigns(body: &mut Stmt) {
-    // Reads per var (assignment targets excluded) over the whole tree.
-    let mut reads: Vec<usize> = Vec::new();
-    count_reads(body, &mut reads);
-    let is_dead = |st: &Stmt| -> bool {
-        let Stmt::ExprStmt(Expr::Assign {
-            target,
-            value,
-            op: jdc_core::ir::expr::AssignOp::Plain,
-            ..
-        }) = st
-        else {
-            return false;
-        };
-        let Expr::Local { var, .. } = &**target else {
-            return false;
-        };
-        reads.get(*var as usize).copied().unwrap_or(0) == 0 && !has_side_effects(value)
-    };
-    // Replace IN PLACE: the assignment can sit as a single-statement If
-    // arm or a bare case body where no container retain ever reaches it
-    // (the bare-Vec/Block blind spot, switch case body / For init).
-    walk_mut_deep(body, &mut |st| {
-        if is_dead(st) {
-            *st = Stmt::Block(vec![]);
-        }
-    });
-    walk_mut_deep(body, &mut |st| {
-        if let Stmt::Block(v) = st {
-            v.retain(|x| !is_dead(x));
-        }
     });
 }
 
@@ -8548,6 +8372,38 @@ pub fn drop_dead_locals(body: &mut Stmt) {
         if dropped == 0 {
             break;
         }
+    }
+    // Post-fixpoint in-place neutralization: dead assignments in BARE
+    // positions (single-statement If arms, bare case bodies) that no
+    // container retain ever reached. Runs AFTER the loop so the clean
+    // container prune stays primary — the replacement (empty Block) is
+    // residue the prune cannot match, so doing it inside the loop would
+    // cannibalize clean removals (batch2 experiment: +5% lines, +534
+    // errors). Absorbed from the deleted final_dead_assigns: without it
+    // the decl gets pruned while the bare write survives → 找不到符号.
+    {
+        let mut reads: Vec<usize> = Vec::new();
+        count_reads(body, &mut reads);
+        let dead_inplace = |st: &Stmt| -> bool {
+            let Stmt::ExprStmt(Expr::Assign {
+                target,
+                value,
+                op: jdc_core::ir::expr::AssignOp::Plain,
+                ..
+            }) = st
+            else {
+                return false;
+            };
+            let Expr::Local { var, .. } = &**target else {
+                return false;
+            };
+            reads.get(*var as usize).copied().unwrap_or(0) == 0 && !has_side_effects(value)
+        };
+        walk_mut_deep(body, &mut |st| {
+            if dead_inplace(st) {
+                *st = Stmt::Block(vec![]);
+            }
+        });
     }
 }
 

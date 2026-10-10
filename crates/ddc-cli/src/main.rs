@@ -2544,6 +2544,7 @@ fn run() -> Result<()> {
     let mut only: Option<String> = None;
     let mut list = false;
     let mut comments = true;
+    let mut cure = true;
     let mut workers = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
@@ -2597,6 +2598,7 @@ fn run() -> Result<()> {
             "-c" | "--class" => only = Some(take_value!()),
             "-l" | "--list" => list = true,
             "--no-comments" => comments = false,
+            "--no-cure" => cure = false,
             // consumed in main() for the whole invocation; skip here.
             "--symbols" => {
                 let _ = take_value!();
@@ -2697,6 +2699,7 @@ fn run() -> Result<()> {
     }
     let opts = ClassOptions {
         provenance: comments,
+        cure,
     };
     let targets: Vec<String> = match &only {
         Some(one) => {
