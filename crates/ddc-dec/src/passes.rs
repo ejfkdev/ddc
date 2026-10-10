@@ -6373,8 +6373,9 @@ pub fn fix_null_sentinels(body: &mut Stmt, vt: &VarTable, ret: &JavaType) {
 /// `(b ? 1 : 0)` — the dex-level truth (booleans ARE 0/1 ints there;
 /// register reuse puts a bool-typed var into an int expression:
 /// `v5x | 4`, `b == 0` — "boolean无法转换为int" / "二元运算符操作数
-/// 类型错误" families). Runs AFTER fix_bool_xor so boolean-SINK chains
-/// were already converted to all-boolean form and are skipped here.
+/// 类型错误" families). The XOR shape conversion this used to depend on
+/// (fix_bool_xor) is retired — cure's xor/bool family handles it at the
+/// source level; boolean-SINK chains are all-boolean here already.
 pub fn fix_int_operand_bridges(body: &mut Stmt, vt: &VarTable) {
     fn side_bool(e: &Expr, vt: &VarTable) -> bool {
         match e {
@@ -6389,7 +6390,8 @@ pub fn fix_int_operand_bridges(body: &mut Stmt, vt: &VarTable) {
             // got `? 1 : 0`-wrapped while the bool bin stayed bare —
             // rendering int | boolean inside the wrap (news compose
             // CoreTextFieldKt `((v408!=0 ?1:0) | (ci13|ci14) ?1:0)|v412`
-            // ×349 residual). Mirrors fix_bool_xor's bty recursion.
+            // ×349 residual). Full bool-bin recursion (the retired
+            // fix_bool_xor's bty shape, kept here).
             Expr::Bin {
                 op: BinOp::And | BinOp::Or | BinOp::Xor,
                 l,
@@ -7718,181 +7720,6 @@ pub fn idiom_compounds(body: &mut Stmt, vt: &VarTable) {
     });
 }
 
-pub fn fix_bool_xor(body: &mut Stmt, vt: &VarTable, ret_bool: bool) {
-    fn is_one(e: &Expr) -> bool {
-        matches!(e, Expr::Const(ConstVal::Int(1)))
-    }
-    fn bty(e: &Expr, vt: &VarTable) -> bool {
-        match e {
-            Expr::Local { var, .. } => {
-                matches!(vt.var(*var).ty.erased(), JavaType::Boolean)
-            }
-            // A bitwise bin over all-boolean sides IS boolean: the
-            // embedded bin ty stays frozen Int from the or-int lift
-            // (booleanize retypes the vt, not bin nodes), so the flat
-            // lookup saw `(b1|b2) | i3` as int-sided and skipped the
-            // mixed rewrite — rendered `boolean | int` (uuyc i5/a_3
-            // `(v37|v38|v39)==0` ×21; news ×995 二元运算符 '|').
-            // Mirrors emit.rs bool_ish_vt's recursion so the rewrite
-            // here and the logical-form render there agree.
-            Expr::Bin {
-                op: BinOp::And | BinOp::Or | BinOp::Xor,
-                l,
-                r,
-                ..
-            } => bty(l, vt) && bty(r, vt),
-            other => matches!(other.type_ref().erased(), JavaType::Boolean),
-        }
-    }
-    // Int-typed `x ^ 1` in a BOOLEAN sink is the compiler's `!x` over a
-    // 0/1 slot: rewrite to `x == 0` (the booleanize return-wrap misses
-    // Xor shapes — weibo ArraysKt `return v2 ^ 1;` against a boolean
-    // return, "int无法转换为boolean").
-    fn inv_of_xor(x: &Expr, vt: &VarTable) -> Option<Expr> {
-        if let Expr::Bin { op: BinOp::Xor, l, r, .. } = x {
-            let (int_side, one_side) = if is_one(r) {
-                (l, r)
-            } else if is_one(l) {
-                (r, l)
-            } else {
-                return None;
-            };
-            let _ = one_side;
-            if !bty(int_side, vt) {
-                return Some(Expr::Bin {
-                    op: BinOp::Eq,
-                    l: int_side.clone(),
-                    r: Box::new(Expr::Const(ConstVal::Int(0))),
-                    ty: Some(TypeRef::J(JavaType::Boolean)),
-                });
-            }
-        }
-        None
-    }
-    let tgt_bool = |target: &Expr, vt: &VarTable| -> bool {
-        match target {
-            Expr::Local { var, .. } => matches!(vt.var(*var).ty.erased(), JavaType::Boolean),
-            Expr::Field { ty, .. } => matches!(ty.erased(), JavaType::Boolean),
-            _ => false,
-        }
-    };
-    walk_mut_deep(body, &mut |st| match st {
-        Stmt::Return(Some(e)) if ret_bool => {
-            if let Some(r) = inv_of_xor(e, vt) {
-                *e = r;
-            }
-        }
-        Stmt::ExprStmt(Expr::Assign { target, value, op: AssignOp::Plain, .. }) => {
-            if tgt_bool(target, vt) {
-                if let Some(r) = inv_of_xor(value, vt) {
-                    **value = r;
-                }
-            }
-        }
-        Stmt::LocalDef { var, init: Some(value), .. }
-            if matches!(vt.var(*var).ty.erased(), JavaType::Boolean) =>
-        {
-            if let Some(r) = inv_of_xor(value, vt) {
-                *value = r;
-            }
-        }
-        Stmt::If { cond, .. } | Stmt::While { cond, .. } | Stmt::DoWhile { cond, .. } => {
-            if let Some(r) = inv_of_xor(cond, vt) {
-                *cond = r;
-            }
-        }
-        _ => {}
-    });
-    fn ity(e: &Expr, vt: &VarTable) -> bool {
-        matches!(
-            match e {
-                Expr::Local { var, .. } => vt.var(*var).ty.erased(),
-                other => other.type_ref().erased(),
-            },
-            JavaType::Int | JavaType::Short | JavaType::Byte | JavaType::Char
-        )
-    }
-    /// Mixed-kind bitwise rewrite: Kotlin's non-short-circuit
-    /// `or`/`and` over 0/1 ints mixes generations once booleanize
-    /// converts one side (`delete | delete2` — "boolean无法转换为int" at
-    /// the OPERAND, weixin SQLiteDatabase ×3.3k), and `b ^ 1` is `!b`.
-    /// The int side is a 0/1 encoding: compare it, keeping the chain
-    /// boolean end to end. ONLY legal into a BOOLEAN sink — ungated, it
-    /// rewrote int-sink `v6 = v5x | 4` into `v5x | 4 != 0` assigned to
-    /// an int var (boolean无法转换为int, weixin yq5/c ×2.1k family).
-    fn mixed_rewrite(e: &mut Expr, vt: &VarTable) {
-        deep_rewrite(e, &mut |x| {
-            if let Expr::Bin { op, l, r, ty } = x {
-                match op {
-                    BinOp::Xor => {
-                        if is_one(r) && bty(l, vt) {
-                            let taken =
-                                std::mem::replace(l, Box::new(Expr::Const(ConstVal::Null)));
-                            *x = Expr::Un { op: UnOp::Not, e: taken };
-                        } else if is_one(l) && bty(r, vt) {
-                            let taken =
-                                std::mem::replace(r, Box::new(Expr::Const(ConstVal::Null)));
-                            *x = Expr::Un { op: UnOp::Not, e: taken };
-                        }
-                    }
-                    BinOp::Or | BinOp::And => {
-                        if bty(l, vt) && ity(r, vt) {
-                            let taken =
-                                std::mem::replace(r, Box::new(Expr::Const(ConstVal::Null)));
-                            **r = Expr::Bin {
-                                op: BinOp::Ne,
-                                l: taken,
-                                r: Box::new(Expr::Const(ConstVal::Int(0))),
-                                ty: Some(TypeRef::J(JavaType::Boolean)),
-                            };
-                            *ty = Some(TypeRef::J(JavaType::Boolean));
-                        } else if ity(l, vt) && bty(r, vt) {
-                            let taken =
-                                std::mem::replace(l, Box::new(Expr::Const(ConstVal::Null)));
-                            **l = Expr::Bin {
-                                op: BinOp::Ne,
-                                l: taken,
-                                r: Box::new(Expr::Const(ConstVal::Int(0))),
-                                ty: Some(TypeRef::J(JavaType::Boolean)),
-                            };
-                            *ty = Some(TypeRef::J(JavaType::Boolean));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        });
-    }
-    // Boolean sinks: bool-typed assign/def targets, boolean-method
-    // returns, and loop/branch conditions.
-    walk_mut_deep(body, &mut |st| match st {
-        Stmt::Return(Some(e)) if ret_bool => mixed_rewrite(e, vt),
-        Stmt::ExprStmt(Expr::Assign { target, value, op: AssignOp::Plain, .. }) => {
-            if tgt_bool(target, vt) {
-                mixed_rewrite(value, vt);
-            }
-        }
-        Stmt::LocalDef { var, init: Some(e), .. }
-            if matches!(vt.var(*var).ty.erased(), JavaType::Boolean) =>
-        {
-            mixed_rewrite(e, vt);
-        }
-        Stmt::If { cond, .. } | Stmt::While { cond, .. } | Stmt::DoWhile { cond, .. } => {
-            mixed_rewrite(cond, vt);
-        }
-        _ => {}
-    });
-    // A conditional's test is a boolean sink wherever it sits (including
-    // inside int-sink statements the walk above skips).
-    walk_stmt_exprs(body, &mut |e| {
-        deep_rewrite(e, &mut |x| {
-            if let Expr::Cond { c, .. } = x {
-                mixed_rewrite(c, vt);
-            }
-        });
-    });
-}
-
 /// Boolean inference: vars only ever assigned 0/1/comparisons/booleans and
 /// read in conditions become `boolean`, with `v != 0` → `v` in conditions.
 /// Returns the number of vars converted (0 = nothing changed — the
@@ -8210,9 +8037,10 @@ fn is_boolean_valued(e: &Expr, vt: &VarTable) -> bool {
             is_boolean_valued(l, vt) || is_boolean_valued(r, vt)
         }
         // Kotlin's `!x` lowers to `x ^ 1`; at booleanize time the value
-        // is still the Xor (fix_bool_xor runs later), so an int-typed
-        // generation receiving it never retyped (weixin v2/i's
-        // `int v264_g160_g7 = !v200`). BOTH sides must be bool-shaped:
+        // is still the Xor (converted to ! form later — by cure's source
+        // rules now), so an int-typed generation receiving it never
+        // retyped (weixin v2/i's `int v264_g160_g7 = !v200`). BOTH sides
+        // must be bool-shaped:
         // `bool ^ 1` qualifies (Const 0/1 is boolean-valued above),
         // a genuine int `flags ^ 1` does not (flags stays Int in vt).
         // MUST precede the generic Bin arm (which would swallow Xor).

@@ -591,7 +591,6 @@ pub fn decompile_method(
         passes::fix_incomparable_equality(&mut body, &vt, pool);
         passes::fix_primitive_assign_casts(&vt, &mut body, &desc.ret);
         passes::fix_primitive_arg_bridges(&mut body, &vt, pool);
-        passes::fix_bool_xor(&mut body, &vt, matches!(desc.ret, JavaType::Boolean));
         passes::fix_int_operand_bridges(&mut body, &vt);
         passes::fix_ref_array_null_consts(&mut body);
         passes::idiom_compounds(&mut body, &vt);
@@ -946,7 +945,6 @@ pub fn decompile_method(
     passes::fix_incomparable_equality(&mut body, &vt, pool);
     passes::fix_primitive_assign_casts(&vt, &mut body, &desc.ret);
     passes::fix_primitive_arg_bridges(&mut body, &vt, pool);
-    passes::fix_bool_xor(&mut body, &vt, matches!(desc.ret, JavaType::Boolean));
     passes::fix_int_operand_bridges(&mut body, &vt);
     passes::fix_ref_array_null_consts(&mut body);
     passes::idiom_compounds(&mut body, &vt);
