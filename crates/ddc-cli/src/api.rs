@@ -132,6 +132,44 @@ pub struct MainActivityReport {
 
 // ---- cores -------------------------------------------------------------------
 
+/// Per-image header summaries (`info` needs counts only, not id tables or
+/// string payloads). Images are inflated in parallel and only to 0x70 bytes;
+/// stored images are read in place.
+pub fn image_summaries(input: &Path, dex_filters: &[String]) -> Result<Vec<ImageCounts>> {
+    let files = expand_inputs(&[input.to_path_buf()])?;
+    let images = filter_images_by_dex(collect_images(&files)?, dex_filters)?;
+    let mut handles = Vec::with_capacity(images.len());
+    for img in images {
+        let label = img.label.clone();
+        handles.push((
+            label,
+            std::thread::spawn(move || crate::inputs::image_header_summary(img)),
+        ));
+    }
+    let mut out = Vec::with_capacity(handles.len());
+    for (label, handle) in handles {
+        let summary = handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("header scan thread panicked: {label}"))?
+            .map_err(|e| anyhow::anyhow!("header scan {label}: {e}"))?;
+        match summary {
+            Some(s) => out.push(ImageCounts {
+                image: label,
+                dex_version: s.dex_version,
+                classes: s.classes,
+                methods: s.methods,
+                fields: s.fields,
+                strings: s.strings,
+            }),
+            None => eprintln!("ddc: skipping {label} (not a DEX header)"),
+        }
+    }
+    if out.is_empty() {
+        anyhow::bail!("no parsable DEX image (all images skipped)");
+    }
+    Ok(out)
+}
+
 pub fn info_report(input: &Path) -> Result<InfoReport> {
     let mut report = InfoReport {
         label: None,
@@ -166,23 +204,10 @@ pub fn info_report(input: &Path) -> Result<InfoReport> {
         report.size_bytes = Some(std::fs::metadata(input)?.len());
         report.md5 = Some(crate::md5_hex(input)?);
     }
-    let files = expand_inputs(&[input.to_path_buf()])?;
-    let parsed = crate::parse_images(collect_images(&files)?)?;
-    let mut total_classes = 0u64;
-    for (label, dex) in &parsed {
-        let classes = dex.class_defs.len();
-        total_classes += classes as u64;
-        report.images.push(ImageCounts {
-            image: label.clone(),
-            dex_version: dex.version.clone(),
-            classes: classes as u64,
-            methods: dex.method_count() as u64,
-            fields: dex.field_count() as u64,
-            strings: dex.string_count() as u64,
-        });
-    }
-    report.total_images = parsed.len() as u64;
-    report.total_classes = total_classes;
+    let images = image_summaries(input, &[])?;
+    report.total_images = images.len() as u64;
+    report.total_classes = images.iter().map(|image| image.classes).sum();
+    report.images = images;
     Ok(report)
 }
 

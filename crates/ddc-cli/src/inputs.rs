@@ -489,6 +489,67 @@ pub fn class_names_prefix_needed(image: &[u8]) -> Option<usize> {
     Some(need)
 }
 
+/// Header-only DEX summary: the counts `info` prints, without decoding any id
+/// table or string payload.
+#[derive(Debug, Clone)]
+pub struct DexHeaderSummary {
+    pub dex_version: String,
+    pub classes: u64,
+    pub methods: u64,
+    pub fields: u64,
+    pub strings: u64,
+}
+
+/// Read one image's 0x70-byte header. Stored images are read in place; a
+/// deflated image inflates only the first chunk needed for the header.
+pub fn image_header_summary(img: Image) -> std::result::Result<Option<DexHeaderSummary>, String> {
+    let raw = match img.method {
+        ZipMethod::Stored => {
+            return Ok(parse_dex_header_summary(&img.data.bytes()[img.range]));
+        }
+        ZipMethod::Deflate => inflate_until(
+            img.data.bytes(),
+            img.range.clone(),
+            |out| {
+                if out.len() >= 0x70 {
+                    PrefixStep::Abort
+                } else {
+                    PrefixStep::Continue(0x70 - out.len())
+                }
+            },
+        )
+        .map_err(|e| e.to_string())?,
+    };
+    Ok(parse_dex_header_summary(&raw))
+}
+
+fn parse_dex_header_summary(image: &[u8]) -> Option<DexHeaderSummary> {
+    if image.len() < 0x70 || !image.starts_with(b"dex\n") {
+        return None;
+    }
+    let version = std::str::from_utf8(&image[4..7]).ok()?;
+    if !matches!(
+        version,
+        "035" | "037" | "038" | "039" | "040" | "041"
+    ) {
+        return None;
+    }
+    let endian = u32::from_le_bytes(image[40..44].try_into().ok()?);
+    if endian != 0x1234_5678 {
+        return None;
+    }
+    let u4 = |o: usize| -> u64 {
+        u32::from_le_bytes(image[o..o + 4].try_into().unwrap()) as u64
+    };
+    Some(DexHeaderSummary {
+        dex_version: version.to_string(),
+        strings: u4(0x38),
+        fields: u4(0x50),
+        methods: u4(0x58),
+        classes: u4(0x60),
+    })
+}
+
 /// Inflate each image on its own thread WITHOUT DexFile::parse — the raw
 /// bytes go straight to the caller (the browse commands run their own
 /// zero-materialization queries on them).
@@ -576,7 +637,7 @@ pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
 
 #[cfg(test)]
 mod tests {
-    use super::class_names_prefix_needed;
+    use super::{class_names_prefix_needed, parse_dex_header_summary};
 
     fn put_u4(data: &mut [u8], off: usize, value: u32) {
         data[off..off + 4].copy_from_slice(&value.to_le_bytes());
@@ -620,5 +681,27 @@ mod tests {
         );
         assert!(ddc_dex::DexFile::class_names_from_image(&data[..end - 1]).is_empty());
         assert_eq!(class_names_prefix_needed(&data[..end + 8]), Some(end));
+    }
+
+    #[test]
+    fn header_summary_reads_counts_without_tables() {
+        let mut data = vec![0u8; 0x70];
+        data[..8].copy_from_slice(b"dex\n035\0");
+        put_u4(&mut data, 0x28, 0x1234_5678); // endian_tag
+        put_u4(&mut data, 0x38, 11); // string_ids_size
+        put_u4(&mut data, 0x50, 22); // field_ids_size
+        put_u4(&mut data, 0x58, 33); // method_ids_size
+        put_u4(&mut data, 0x60, 44); // class_defs_size
+
+        let summary = parse_dex_header_summary(&data).expect("valid header");
+        assert_eq!(summary.dex_version, "035");
+        assert_eq!(summary.strings, 11);
+        assert_eq!(summary.fields, 22);
+        assert_eq!(summary.methods, 33);
+        assert_eq!(summary.classes, 44);
+        assert!(parse_dex_header_summary(&data[..0x60]).is_none());
+
+        data[4..7].copy_from_slice(b"036");
+        assert!(parse_dex_header_summary(&data).is_none());
     }
 }

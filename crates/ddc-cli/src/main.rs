@@ -1706,24 +1706,50 @@ fn fmt_bytes(n: u64) -> String {
 }
 
 /// Compact MD5 (RFC 1321) for sample identification — one hash line, no
-/// crypto-crate dependency for it.
+/// crypto-crate dependency for it. Streams the file so `info` on a 400MB APK
+/// does not fault the whole mapping into RSS.
 fn md5_hex(path: &std::path::Path) -> Result<String> {
-    let src = inputs::map_source(path)?;
-    let data = src.bytes();
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
     let mut state: [u32; 4] = [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476];
-    let (full, rem) = data.as_chunks::<64>();
-    for b in full {
-        md5_block(&mut state, b);
+    let mut carry = [0u8; 64];
+    let mut carry_len = 0usize;
+    let mut total = 0u64;
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        total += n as u64;
+        let mut chunk = &buf[..n];
+        if carry_len > 0 {
+            let take = (64 - carry_len).min(chunk.len());
+            carry[carry_len..carry_len + take].copy_from_slice(&chunk[..take]);
+            carry_len += take;
+            chunk = &chunk[take..];
+            if carry_len == 64 {
+                md5_block(&mut state, &carry);
+            } else {
+                continue;
+            }
+        }
+        let (blocks, rem) = chunk.as_chunks::<64>();
+        for block in blocks {
+            md5_block(&mut state, block);
+        }
+        carry[..rem.len()].copy_from_slice(rem);
+        carry_len = rem.len();
     }
-    let bitlen = (data.len() as u64).wrapping_mul(8);
-    let mut last = [0u8; 64];
-    last[..rem.len()].copy_from_slice(rem);
-    last[rem.len()] = 0x80;
-    if rem.len() < 56 {
-        last[56..64].copy_from_slice(&bitlen.to_le_bytes());
-        md5_block(&mut state, &last);
+    let bitlen = total.wrapping_mul(8);
+    carry[carry_len] = 0x80;
+    if carry_len < 56 {
+        carry[carry_len + 1..56].fill(0);
+        carry[56..64].copy_from_slice(&bitlen.to_le_bytes());
+        md5_block(&mut state, &carry);
     } else {
-        md5_block(&mut state, &last);
+        carry[carry_len + 1..64].fill(0);
+        md5_block(&mut state, &carry);
         let mut extra = [0u8; 64];
         extra[56..64].copy_from_slice(&bitlen.to_le_bytes());
         md5_block(&mut state, &extra);
@@ -2000,9 +2026,8 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
         println!("{:<12}{}", "md5", md5_hex(&input)?);
     }
     println!();
-    let files = expand_inputs(&[input])?;
-    let parsed = parse_images(filter_images_by_dex(collect_images(&files)?, &dex_filters)?)?;
-    let mut total_classes = 0usize;
+    let images = crate::api::image_summaries(&input, &dex_filters)?;
+    let mut total_classes = 0u64;
     println!(
         "{:>10}  {:>8}  {:>10}  {:>10}  {:>9}  {:>10}",
         bi!("image", "镜像"),
@@ -2012,17 +2037,16 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
         bi!("fields", "字段"),
         bi!("strings", "字符串")
     );
-    for (label, dex) in &parsed {
-        let classes = dex.class_defs.len();
-        total_classes += classes;
+    for image in &images {
+        total_classes += image.classes;
         println!(
             "{:>10}  {:>8}  {:>10}  {:>10}  {:>9}  {:>10}",
-            label,
-            dex.version,
-            classes,
-            dex.method_count(),
-            dex.field_count(),
-            dex.string_count(),
+            image.image,
+            image.dex_version,
+            image.classes,
+            image.methods,
+            image.fields,
+            image.strings,
         );
     }
     println!(
@@ -2030,7 +2054,7 @@ fn cmd_info(args: &[String], _t0: std::time::Instant) -> Result<()> {
         bif!(
             "total: {0} image(s), {1} classes",
             "合计：{0} 个镜像，{1} 个类";
-            parsed.len(),
+            images.len(),
             total_classes
         )
     );
@@ -4680,5 +4704,35 @@ mod tests {
         assert_eq!(entries[0].name, "classes.dex");
         assert_eq!(entries[1].name, "AndroidManifest.xml");
         assert!(entries.iter().all(|e| e.range.end <= z.len()));
+    }
+}
+
+#[cfg(test)]
+mod md5_tests {
+    use super::md5_hex;
+
+    /// Cover the carry across 64-byte blocks and the 1 MiB read buffer.
+    #[test]
+    fn streaming_matches_known_vectors() {
+        let vectors = [
+            (0usize, "d41d8cd98f00b204e9800998ecf8427e"),
+            (1, "0cc175b9c0f1b6a831c399e269772661"),
+            (55, "ef1772b6dff9a122358552954ad0df65"),
+            (56, "3b0c8ac703f828b04c6c197006d17218"),
+            (63, "b06521f39153d618550606be297466d5"),
+            (64, "014842d480b571495a4a0363793f7367"),
+            (65, "c743a45e0d2e6a95cb859adae0248435"),
+            (1_048_579, "ff2c8815ad9e7686a3ae921be4fafaa9"),
+        ];
+        for (index, (len, expected)) in vectors.into_iter().enumerate() {
+            let path = std::env::temp_dir().join(format!(
+                "ddc-md5-{}-{index}",
+                std::process::id()
+            ));
+            std::fs::write(&path, vec![b'a'; len]).expect("write fixture");
+            let actual = md5_hex(&path).expect("hash fixture");
+            let _ = std::fs::remove_file(&path);
+            assert_eq!(actual, expected, "MD5 mismatch for {len} bytes");
+        }
     }
 }
