@@ -260,28 +260,28 @@ pub fn class_names(
         let handles: Vec<_> = wave
             .into_iter()
             .map(|img| {
-                std::thread::spawn(move || {
-                    let raw = match img.method {
-                        crate::ZipMethod::Stored => img.data.bytes()[img.range].to_vec(),
-                        crate::ZipMethod::Deflate => {
-                            crate::inputs::inflate_until(
-                                img.data.bytes(),
-                                img.range.clone(),
-                                |out| match crate::inputs::scan_prefix_needed(out) {
-                                    None => crate::inputs::PrefixStep::Continue(0),
-                                    Some(needed) => {
-                                        if out.len() >= needed {
-                                            crate::inputs::PrefixStep::Abort
-                                        } else {
-                                            crate::inputs::PrefixStep::Continue(needed - out.len())
-                                        }
+                std::thread::spawn(move || match img.method {
+                    crate::ZipMethod::Stored => ddc_dex::DexFile::class_names_from_image(
+                        &img.data.bytes()[img.range],
+                    ),
+                    crate::ZipMethod::Deflate => {
+                        let raw = crate::inputs::inflate_until(
+                            img.data.bytes(),
+                            img.range.clone(),
+                            |out| match crate::inputs::class_names_prefix_needed(out) {
+                                None => crate::inputs::PrefixStep::Continue(0),
+                                Some(needed) => {
+                                    if out.len() >= needed {
+                                        crate::inputs::PrefixStep::Abort
+                                    } else {
+                                        crate::inputs::PrefixStep::Continue(needed - out.len())
                                     }
-                                },
-                            )
-                            .unwrap_or_default()
-                        }
-                    };
-                    ddc_dex::DexFile::class_names_from_image(&raw)
+                                }
+                            },
+                        )
+                        .unwrap_or_default();
+                        ddc_dex::DexFile::class_names_from_image(&raw)
+                    }
                 })
             })
             .collect();
