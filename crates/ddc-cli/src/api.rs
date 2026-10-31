@@ -14,7 +14,7 @@ use anyhow::{bail, Context, Result};
 use crate::inputs::{
     collect_images, expand_inputs, filter_images_by_dex, is_dex_ext, dir_has_dex_files,
 };
-use crate::browse::for_each_image;
+use crate::browse::{for_each_image, for_each_prefix_image};
 use crate::findrefs::{decode_mutf8_lossy, RawDex};
 
 // ---- responses ---------------------------------------------------------------
@@ -290,9 +290,10 @@ pub fn class_names(
                         &img.data.bytes()[img.range],
                     ),
                     crate::ZipMethod::Deflate => {
-                        let raw = crate::inputs::inflate_until(
+                        let raw = crate::inputs::inflate_until_capacity(
                             img.data.bytes(),
                             img.range.clone(),
+                            img.usize_hint,
                             |out| match crate::inputs::class_names_prefix_needed(out) {
                                 None => crate::inputs::PrefixStep::Continue(0),
                                 Some(needed) => {
@@ -689,7 +690,11 @@ pub fn main_activity(input: &Path) -> Result<MainActivityReport> {
         .context("manifest declares no MAIN/LAUNCHER activity")?;
     let internal = launcher.replace('.', "/");
     let mut found: Option<String> = None;
-    for_each_image(&input.to_path_buf(), &[], &mut |label, image| {
+    for_each_prefix_image(
+        &input.to_path_buf(),
+        &[],
+        crate::inputs::type_descriptor_prefix_needed,
+        &mut |label, image| {
         if found.is_some() {
             return;
         }
@@ -1153,7 +1158,11 @@ pub fn hierarchy_rows(input: &Path, target: &str, dex_filters: &[String]) -> Res
     let target = target.replace('.', "/");
     let mut rows: Vec<RelationRow> = Vec::new();
     let mut found = false;
-    for_each_image(&input.to_path_buf(), dex_filters, &mut |label, image| {
+    for_each_prefix_image(
+        &input.to_path_buf(),
+        dex_filters,
+        crate::inputs::type_descriptor_prefix_needed,
+        &mut |label, image| {
         let dex_name = label
             .rsplit_once('!')
             .map(|(_, e)| e)

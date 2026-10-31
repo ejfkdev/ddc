@@ -2505,9 +2505,10 @@ fn light_image_name_wave(images: Vec<Image>) -> Result<Vec<Vec<String>>> {
                         &img.data.bytes()[img.range.clone()],
                     )),
                     ZipMethod::Deflate => {
-                        let raw = inputs::inflate_until(
+                        let raw = inputs::inflate_until_capacity(
                             img.data.bytes(),
                             img.range.clone(),
+                            img.usize_hint,
                             |out| match inputs::class_names_prefix_needed(out) {
                                 None => inputs::PrefixStep::Continue(0),
                                 Some(needed) => {

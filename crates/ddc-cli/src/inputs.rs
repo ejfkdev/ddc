@@ -322,6 +322,18 @@ pub fn filter_images_by_dex(images: Vec<Image>, patterns: &[String]) -> Result<V
 pub fn inflate_until(
     data: &[u8],
     range: std::ops::Range<usize>,
+    decide: impl FnMut(&[u8]) -> PrefixStep,
+) -> Result<Vec<u8>> {
+    inflate_until_capacity(data, range, 0, decide)
+}
+
+/// Same as [`inflate_until`], with an initial capacity. Prefix callers pass
+/// the image's uncompressed-size hint so a near-full prefix does not pay for
+/// repeated `Vec` growth/copying; only the written pages become resident.
+pub fn inflate_until_capacity(
+    data: &[u8],
+    range: std::ops::Range<usize>,
+    capacity: usize,
     mut decide: impl FnMut(&[u8]) -> PrefixStep,
 ) -> Result<Vec<u8>> {
     use std::io::Read;
@@ -333,7 +345,7 @@ pub fn inflate_until(
     // rest of the stream without further callbacks.
     const CHUNK: usize = 1 << 18;
     let mut reader = flate2::read::DeflateDecoder::new(compressed);
-    let mut out: Vec<u8> = Vec::new();
+    let mut out: Vec<u8> = Vec::with_capacity(capacity);
     let mut checkpoint = 0usize;
     let mut drain = false;
     let mut chunk = vec![0u8; CHUNK];
@@ -344,7 +356,9 @@ pub fn inflate_until(
                     if n == usize::MAX {
                         drain = true;
                     } else {
-                        checkpoint = out.len() + n.max(1);
+                        let n = n.max(1);
+                        out.reserve_exact(n);
+                        checkpoint = out.len() + n;
                     }
                 }
                 PrefixStep::Abort => return Ok(out),
@@ -367,6 +381,10 @@ pub enum PrefixStep {
     /// Stop: the prefix is all that is needed.
     Abort,
 }
+
+/// A prefix decider: returns the required byte count, or `None` while the
+/// header/tables themselves are still incomplete.
+pub type PrefixNeed = fn(&[u8]) -> Option<usize>;
 
 /// How far into a DEX image the id tables + string data reach (the
 /// reference-search working set): max(class_defs end, string-data end).
@@ -489,6 +507,101 @@ pub fn class_names_prefix_needed(image: &[u8]) -> Option<usize> {
     Some(need)
 }
 
+fn string_item_end(image: &[u8], data_off: usize) -> std::result::Result<usize, usize> {
+    if data_off >= image.len() {
+        return Err(data_off.saturating_add(4096));
+    }
+    let mut p = data_off;
+    loop {
+        let Some(&b) = image.get(p) else {
+            return Err(data_off.saturating_add(4096));
+        };
+        p += 1;
+        if b & 0x80 == 0 {
+            break;
+        }
+    }
+    image
+        .get(p..)
+        .and_then(|tail| tail.iter().position(|&b| b == 0))
+        .map(|nul| p + nul + 1)
+        .ok_or_else(|| {
+            data_off
+                .saturating_add(4096)
+                .max(image.len().saturating_add(4096))
+        })
+}
+
+/// How far into a DEX image the type descriptor strings reach.
+///
+/// `hierarchy`/`mainactivity` resolve class names, superclasses and interfaces
+/// from `type_ids`; they never need code items or non-type strings. Returning
+/// the exact end of those descriptors lets the caller inflate only that
+/// prefix. `None` means the prefix is still too short; `Some(0)` is invalid
+/// input.
+pub fn type_descriptor_prefix_needed(image: &[u8]) -> Option<usize> {
+    if image.len() < 0x70 {
+        return Some(0x70);
+    }
+    if !image.starts_with(b"dex\n") {
+        return Some(0);
+    }
+    let u4 = |o: usize| -> usize {
+        u32::from_le_bytes([image[o], image[o + 1], image[o + 2], image[o + 3]]) as usize
+    };
+    let str_n = u4(0x38);
+    let str_off = u4(0x3c);
+    let type_n = u4(0x40);
+    let type_off = u4(0x44);
+    let cls_n = u4(0x60);
+    let cls_off = u4(0x64);
+
+    let tables_end = str_off
+        .saturating_add(4usize.saturating_mul(str_n))
+        .max(type_off.saturating_add(4usize.saturating_mul(type_n)))
+        .max(cls_off.saturating_add(32usize.saturating_mul(cls_n)));
+    if tables_end > image.len() {
+        return Some(tables_end);
+    }
+
+    let mut need = tables_end;
+    for i in 0..type_n {
+        let string_idx = u4(type_off + 4 * i);
+        if string_idx >= str_n {
+            continue;
+        }
+        let id_off = str_off + 4 * string_idx;
+        if id_off + 4 > image.len() {
+            continue;
+        }
+        let data_off = u4(id_off);
+        match string_item_end(image, data_off) {
+            Ok(end) => need = need.max(end),
+            Err(request) => return Some(request),
+        }
+    }
+    // `hierarchy` reads each class_def's interfaces_off -> type_list, which
+    // lives in the data section independently of the type_ids table.
+    for i in 0..cls_n {
+        let interfaces_off = u4(cls_off + 32 * i + 12);
+        if interfaces_off == 0 {
+            continue;
+        }
+        if interfaces_off >= image.len() {
+            return Some(interfaces_off.saturating_add(4096));
+        }
+        let count = u4(interfaces_off);
+        let end = interfaces_off
+            .saturating_add(4)
+            .saturating_add(2usize.saturating_mul(count));
+        if end > image.len() {
+            return Some(end.saturating_add(4096));
+        }
+        need = need.max(end);
+    }
+    Some(need)
+}
+
 /// Header-only DEX summary: the counts `info` prints, without decoding any id
 /// table or string payload.
 #[derive(Debug, Clone)]
@@ -583,6 +696,52 @@ pub fn inflate_images(images: Vec<Image>) -> Result<Vec<(Image, Vec<u8>)>> {
     Ok(out)
 }
 
+/// Inflate each image only as far as `need` asks (see
+/// `type_descriptor_prefix_needed`), in parallel and in input order.
+pub fn inflate_prefix_images(
+    images: Vec<Image>,
+    need: PrefixNeed,
+) -> Result<Vec<(Image, Vec<u8>)>> {
+    let mut handles = Vec::with_capacity(images.len());
+    for img in images {
+        let label = img.label.clone();
+        handles.push((
+            label,
+            std::thread::spawn(move || {
+                let raw = match img.method {
+                    ZipMethod::Stored => img.data.bytes()[img.range.clone()].to_vec(),
+                    ZipMethod::Deflate => inflate_until_capacity(
+                        img.data.bytes(),
+                        img.range.clone(),
+                        img.usize_hint,
+                        |out| match need(out) {
+                            None => PrefixStep::Continue(0),
+                            Some(needed) => {
+                                if out.len() >= needed {
+                                    PrefixStep::Abort
+                                } else {
+                                    PrefixStep::Continue(needed - out.len())
+                                }
+                            }
+                        },
+                    )
+                    .map_err(|e| e.to_string())?,
+                };
+                Ok::<_, String>((img, raw))
+            }),
+        ));
+    }
+    let mut out = Vec::with_capacity(handles.len());
+    for (name, h) in handles {
+        let (img, raw) = h
+            .join()
+            .map_err(|_| anyhow::anyhow!("inflate thread panicked: {}", name))?
+            .map_err(|e| anyhow::anyhow!("inflate prefix {}: {}", name, e))?;
+        out.push((img, raw));
+    }
+    Ok(out)
+}
+
 /// Inflate AND parse each image on its own thread. Returns
 /// `(label, DexFile)` pairs in input order.
 pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
@@ -637,7 +796,9 @@ pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{class_names_prefix_needed, parse_dex_header_summary};
+    use super::{
+        class_names_prefix_needed, parse_dex_header_summary, type_descriptor_prefix_needed,
+    };
 
     fn put_u4(data: &mut [u8], off: usize, value: u32) {
         data[off..off + 4].copy_from_slice(&value.to_le_bytes());
@@ -703,5 +864,50 @@ mod tests {
 
         data[4..7].copy_from_slice(b"036");
         assert!(parse_dex_header_summary(&data).is_none());
+    }
+
+    #[test]
+    fn type_prefix_covers_descriptors_but_not_unrelated_strings() {
+        let mut data = vec![0u8; 0x300];
+        data[..8].copy_from_slice(b"dex\n035\0");
+        put_u4(&mut data, 0x38, 3); // string_ids_size
+        put_u4(&mut data, 0x3c, 0x70); // string_ids_off
+        put_u4(&mut data, 0x40, 2); // type_ids_size
+        put_u4(&mut data, 0x44, 0x7c); // type_ids_off
+        put_u4(&mut data, 0x60, 1); // class_defs_size
+        put_u4(&mut data, 0x64, 0x84); // class_defs_off
+
+        put_u4(&mut data, 0x70, 0xa8); // string 0: Lfoo/Bar;
+        put_u4(&mut data, 0x74, 0xc0); // string 1: long descriptor
+        put_u4(&mut data, 0x78, 0x200); // string 2: unrelated
+        put_u4(&mut data, 0x7c, 0); // type 0 -> string 0
+        put_u4(&mut data, 0x80, 1); // type 1 -> string 1
+        put_u4(&mut data, 0x84, 0); // class_defs[0].class_idx = 0
+        put_u4(&mut data, 0x90, 0x1c0); // class_defs[0].interfaces_off
+
+        let first = b"Lfoo/Bar;";
+        data[0xa8] = first.len() as u8;
+        data[0xa9..0xa9 + first.len()].copy_from_slice(first);
+        data[0xa9 + first.len()] = 0;
+
+        let long = [b'z'; 100];
+        data[0xc0] = long.len() as u8;
+        data[0xc1..0xc1 + long.len()].copy_from_slice(&long);
+        data[0xc1 + long.len()] = 0;
+
+        put_u4(&mut data, 0x1c0, 1); // type_list count
+        data[0x1c4..0x1c6].copy_from_slice(&0u16.to_le_bytes()); // interface type 0
+        let interface_end = 0x1c6;
+
+        let unrelated = b"not a type";
+        data[0x200] = unrelated.len() as u8;
+        data[0x201..0x201 + unrelated.len()].copy_from_slice(unrelated);
+        data[0x201 + unrelated.len()] = 0;
+
+        assert_eq!(
+            type_descriptor_prefix_needed(&data),
+            Some(interface_end)
+        );
+        assert!(interface_end < 0x200);
     }
 }

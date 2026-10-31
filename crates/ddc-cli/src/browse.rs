@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use crate::findrefs::{decode_mutf8_lossy, RawDex};
 use crate::inputs::{
-    collect_images, expand_inputs, filter_images_by_dex, inflate_images, parse_images,
+    collect_images, expand_inputs, filter_images_by_dex, inflate_images, inflate_prefix_images,
+    parse_images, PrefixNeed,
 };
 use crate::lang::{bi, bif};
 
@@ -15,6 +16,27 @@ use crate::lang::{bi, bif};
 /// Bounded like the findrefs pipeline; progressive commands never hold all
 /// images at peak — they fold each one and drop it.
 pub(crate) fn for_each_image(
+    input: &PathBuf,
+    dex_filters: &[String],
+    f: &mut dyn FnMut(&str, &[u8]),
+) -> Result<()> {
+    for_each_image_impl(None, input, dex_filters, f)
+}
+
+/// Same contract as [`for_each_image`], but deflated images stop at the
+/// prefix `need` asks for (see `type_descriptor_prefix_needed`). Stored
+/// images are read in full (they are already mapped).
+pub(crate) fn for_each_prefix_image(
+    input: &PathBuf,
+    dex_filters: &[String],
+    need: PrefixNeed,
+    f: &mut dyn FnMut(&str, &[u8]),
+) -> Result<()> {
+    for_each_image_impl(Some(need), input, dex_filters, f)
+}
+
+fn for_each_image_impl(
+    prefix: Option<PrefixNeed>,
     input: &PathBuf,
     dex_filters: &[String],
     f: &mut dyn FnMut(&str, &[u8]),
@@ -43,7 +65,11 @@ pub(crate) fn for_each_image(
         }
         let take = take.clamp(1, images.len());
         let wave: Vec<_> = images.drain(..take).collect();
-        for (img, raw) in inflate_images(wave)? {
+        let inflated = match prefix {
+            Some(need) => inflate_prefix_images(wave, need)?,
+            None => inflate_images(wave)?,
+        };
+        for (img, raw) in inflated {
             f(&img.label, &raw);
             drop(raw);
         }
@@ -1861,7 +1887,11 @@ pub(crate) fn cmd_mainactivity(args: &[String]) -> Result<()> {
     // framework stub like android.app.Application won't — that's fine.)
     let internal = launcher.replace('.', "/");
     let mut found: Option<String> = None;
-    for_each_image(&common.input, &common.dex_filters, &mut |label, image| {
+    for_each_prefix_image(
+        &common.input,
+        &common.dex_filters,
+        crate::inputs::type_descriptor_prefix_needed,
+        &mut |label, image| {
         if found.is_some() {
             return;
         }
