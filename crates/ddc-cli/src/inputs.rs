@@ -404,6 +404,91 @@ pub fn scan_prefix_needed(image: &[u8]) -> Option<usize> {
     Some(tables_end.max(max_off + 64))
 }
 
+/// How far into a DEX image the class descriptor strings reach.
+///
+/// `class_names_from_image` needs only the header, the string/type/class_def
+/// tables and the descriptors those class_defs point at — not the full string
+/// pool or any code item. Returning the exact descriptor end lets the
+/// two-tier getclass path inflate a fraction of a large image instead of the
+/// whole thing.
+///
+/// `None` means the current prefix is too short to answer yet; `Some(n)` means
+/// `n` bytes are enough. Invalid/non-DEX input returns `Some(0)` so the caller
+/// stops immediately and yields an empty name list.
+pub fn class_names_prefix_needed(image: &[u8]) -> Option<usize> {
+    if image.len() < 0x70 {
+        return Some(0x70);
+    }
+    if !image.starts_with(b"dex\n") {
+        return Some(0);
+    }
+    let u4 = |o: usize| -> usize {
+        u32::from_le_bytes([image[o], image[o + 1], image[o + 2], image[o + 3]]) as usize
+    };
+    let str_n = u4(0x38);
+    let str_off = u4(0x3c);
+    let type_n = u4(0x40);
+    let type_off = u4(0x44);
+    let cls_n = u4(0x60);
+    let cls_off = u4(0x64);
+
+    let tables_end = str_off
+        .saturating_add(4usize.saturating_mul(str_n))
+        .max(type_off.saturating_add(4usize.saturating_mul(type_n)))
+        .max(cls_off.saturating_add(32usize.saturating_mul(cls_n)));
+    if tables_end > image.len() {
+        return Some(tables_end);
+    }
+
+    let mut need = tables_end;
+    for i in 0..cls_n {
+        let cd = cls_off + 32 * i;
+        let class_idx = u4(cd);
+        if class_idx >= type_n {
+            continue;
+        }
+        let string_idx = u4(type_off + 4 * class_idx);
+        if string_idx >= str_n {
+            continue;
+        }
+        let Some(id_off) = str_off
+            .checked_add(4 * string_idx)
+            .filter(|off| *off + 4 <= image.len())
+        else {
+            continue;
+        };
+        let data_off = u4(id_off);
+        if data_off >= image.len() {
+            return Some(data_off.saturating_add(4096));
+        }
+        // Skip the uleb128 UTF-16 length and find this item's NUL terminator.
+        // Descriptors are short; the 4 KiB request is re-evaluated by the
+        // inflate decider, so a longer item simply grows the prefix again.
+        let mut p = data_off;
+        loop {
+            let Some(&b) = image.get(p) else {
+                return Some(data_off.saturating_add(4096));
+            };
+            p += 1;
+            if b & 0x80 == 0 {
+                break;
+            }
+        }
+        let Some(nul) = image
+            .get(p..)
+            .and_then(|tail| tail.iter().position(|&b| b == 0))
+        else {
+            return Some(
+                data_off
+                    .saturating_add(4096)
+                    .max(image.len().saturating_add(4096)),
+            );
+        };
+        need = need.max(p + nul + 1);
+    }
+    Some(need)
+}
+
 /// Inflate each image on its own thread WITHOUT DexFile::parse — the raw
 /// bytes go straight to the caller (the browse commands run their own
 /// zero-materialization queries on them).
@@ -487,4 +572,53 @@ pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
         );
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::class_names_prefix_needed;
+
+    fn put_u4(data: &mut [u8], off: usize, value: u32) {
+        data[off..off + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    /// Minimal DEX with one class descriptor (`Lfoo/Bar;`) and an unrelated
+    /// string far behind it. A correct decider stops after the descriptor,
+    /// not after the whole string pool.
+    #[test]
+    fn class_names_prefix_stops_after_descriptor() {
+        let mut data = vec![0u8; 0x100];
+        data[..8].copy_from_slice(b"dex\n035\0");
+        put_u4(&mut data, 0x20, 0x100);
+        put_u4(&mut data, 0x38, 2); // string_ids_size
+        put_u4(&mut data, 0x3c, 0x70); // string_ids_off
+        put_u4(&mut data, 0x40, 1); // type_ids_size
+        put_u4(&mut data, 0x44, 0x78); // type_ids_off
+        put_u4(&mut data, 0x60, 1); // class_defs_size
+        put_u4(&mut data, 0x64, 0x7c); // class_defs_off
+        put_u4(&mut data, 0x70, 0x9c); // string_ids[0] -> descriptor data
+        put_u4(&mut data, 0x74, 0xc0); // string_ids[1] -> unrelated string
+        put_u4(&mut data, 0x78, 0); // type_ids[0] -> string 0
+        put_u4(&mut data, 0x7c, 0); // class_defs[0].class_idx = 0
+
+        let payload = b"Lfoo/Bar;";
+        data[0x9c] = payload.len() as u8;
+        data[0x9d..0x9d + payload.len()].copy_from_slice(payload);
+        data[0x9d + payload.len()] = 0;
+        let end = 0x9e + payload.len();
+
+        let unrelated = b"zzz";
+        data[0xc0] = unrelated.len() as u8;
+        data[0xc1..0xc1 + unrelated.len()].copy_from_slice(unrelated);
+        data[0xc1 + unrelated.len()] = 0;
+
+        assert_eq!(class_names_prefix_needed(&data), Some(end));
+        assert_eq!(class_names_prefix_needed(&data[..0xc0]), Some(end));
+        assert_eq!(
+            ddc_dex::DexFile::class_names_from_image(&data[..end]),
+            vec!["foo/Bar".to_string()]
+        );
+        assert!(ddc_dex::DexFile::class_names_from_image(&data[..end - 1]).is_empty());
+        assert_eq!(class_names_prefix_needed(&data[..end + 8]), Some(end));
+    }
 }

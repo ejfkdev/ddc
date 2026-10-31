@@ -26,8 +26,8 @@ mod mode_help;
 mod xyz_api;
 
 use inputs::{
-    collect_images, dir_has_dex_files, expand_inputs, filter_images_by_dex, inflate_images,
-    is_dex_ext, parse_images, Image,
+    collect_images, dir_has_dex_files, expand_inputs, filter_images_by_dex, is_dex_ext,
+    parse_images, Image,
 };
 
 // Expr-tree-heavy workloads do billions of small allocations; the system
@@ -2447,8 +2447,9 @@ if format != OutFormat::Text && out.is_none() {
     Ok(())
 }
 
-/// Class names per image without a full DexFile parse: inflate one bounded
-/// wave at a time and decode only the class-def/type/string slices.
+/// Class names per image without a full DexFile parse or a full inflate:
+/// decode only the class-def/type/string tables and the class descriptor
+/// strings those class_defs point at.
 fn light_image_names(images: Vec<Image>) -> Result<Vec<Vec<String>>> {
     let total = images.len();
     let mut out: Vec<Vec<String>> = Vec::with_capacity(total);
@@ -2456,15 +2457,58 @@ fn light_image_names(images: Vec<Image>) -> Result<Vec<Vec<String>>> {
     for img in images {
         chunk.push(img);
         if chunk.len() == 8 {
-            for (_, raw) in inflate_images(std::mem::take(&mut chunk))? {
-                out.push(DexFile::class_names_from_image(&raw));
-            }
+            out.extend(light_image_name_wave(std::mem::take(&mut chunk))?);
         }
     }
     if !chunk.is_empty() {
-        for (_, raw) in inflate_images(chunk)? {
-            out.push(DexFile::class_names_from_image(&raw));
-        }
+        out.extend(light_image_name_wave(chunk)?);
+    }
+    Ok(out)
+}
+
+/// One bounded wave of images, decoded in parallel. Deflated images stop
+/// inflating at the exact end of their class descriptor strings; stored
+/// images are read in place (no copy).
+fn light_image_name_wave(images: Vec<Image>) -> Result<Vec<Vec<String>>> {
+    let mut handles = Vec::with_capacity(images.len());
+    for img in images {
+        let label = img.label.clone();
+        handles.push((
+            label,
+            std::thread::spawn(move || -> std::result::Result<Vec<String>, String> {
+                match img.method {
+                    ZipMethod::Stored => Ok(DexFile::class_names_from_image(
+                        &img.data.bytes()[img.range.clone()],
+                    )),
+                    ZipMethod::Deflate => {
+                        let raw = inputs::inflate_until(
+                            img.data.bytes(),
+                            img.range.clone(),
+                            |out| match inputs::class_names_prefix_needed(out) {
+                                None => inputs::PrefixStep::Continue(0),
+                                Some(needed) => {
+                                    if out.len() >= needed {
+                                        inputs::PrefixStep::Abort
+                                    } else {
+                                        inputs::PrefixStep::Continue(needed - out.len())
+                                    }
+                                }
+                            },
+                        )
+                        .map_err(|e| e.to_string())?;
+                        Ok(DexFile::class_names_from_image(&raw))
+                    }
+                }
+            }),
+        ));
+    }
+    let mut out = Vec::with_capacity(handles.len());
+    for (label, handle) in handles {
+        let names = handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("class-name scan thread panicked: {label}"))?
+            .map_err(|e| anyhow::anyhow!("class-name scan {label}: {e}"))?;
+        out.push(names);
     }
     Ok(out)
 }
