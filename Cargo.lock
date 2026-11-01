@@ -963,9 +963,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.6.0"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ceb42e9e47443cd83a834dea57b5816d35481417bae72ade5dc5615c59122e26"
+checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
 dependencies = [
  "async-trait",
  "base64",
@@ -1622,9 +1622,9 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 
 [[package]]
 name = "xyz-rust"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "243406993682ef91f149effa59e4fc72db9609b46ee9763e58334864f13d3a7e"
+checksum = "e7ba60b7479ad70f51e478eb3ecab01750c81e45ad5662331ba60f62e00731cc"
 dependencies = [
  "axum",
  "axum-server",
@@ -1644,9 +1644,9 @@ dependencies = [
 
 [[package]]
 name = "xyz-rust-macros"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5426c51cd5ea7cc7b9dd11d1d8f17875d19d01a0ef048f4a3e33862af886fb1c"
+checksum = "db56de728f75a947529d809d093b67435f6859c5935d5b572900c0b034576599"
 dependencies = [
  "proc-macro2",
  "quote",

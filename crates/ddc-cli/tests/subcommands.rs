@@ -45,6 +45,40 @@ fn stderr(o: &Output) -> String {
 }
 
 #[test]
+fn mcp_stdio_processes_final_request_without_newline() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    // MCP clients may close stdin right after the last JSON message without a
+    // trailing newline; the request must still be dispatched before EOF.
+    let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#;
+    let initialized = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+    let list = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let request = format!("{init}\n{initialized}\n{list}");
+
+    let mut child = ddc()
+        .arg("mcp")
+        .arg("stdio")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ddc mcp stdio");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(request.as_bytes())
+        .expect("write requests");
+    let out = child.wait_with_output().expect("wait");
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains(r#""id":1"#), "missing initialize response:\n{text}");
+    assert!(text.contains(r#""id":2"#), "missing tools/list response:\n{text}");
+    assert!(text.contains("ddc.findrefs"), "tools list not populated:\n{text}");
+}
+
+#[test]
 fn manifest_decodes_real_axml() {
     let o = run(ddc().arg("manifest").arg(axml_fixture()));
     assert!(o.status.success(), "{}", stderr(&o));
