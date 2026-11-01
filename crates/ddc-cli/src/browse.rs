@@ -1068,11 +1068,35 @@ pub(crate) fn cmd_largest(args: &[String]) -> Result<()> {
 
     struct Row {
         insns: usize,
+        seq: usize,
         dex: String,
         class: String,
         method: String,
     }
-    let mut rows: Vec<Row> = Vec::new();
+    // Ordering is the output order: most instructions first, earlier scan
+    // order winning ties. The heap keeps only the current top `limit`, so a
+    // 2.5M-method APK no longer retains a formatted row per method.
+    impl PartialEq for Row {
+        fn eq(&self, other: &Self) -> bool {
+            self.insns == other.insns && self.seq == other.seq
+        }
+    }
+    impl Eq for Row {}
+    impl PartialOrd for Row {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Row {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.insns
+                .cmp(&other.insns)
+                .then_with(|| other.seq.cmp(&self.seq))
+        }
+    }
+    let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<Row>> =
+        std::collections::BinaryHeap::with_capacity(limit.min(4096));
+    let mut seq = 0usize;
     for_each_image(&common.input, &common.dex_filters, &mut |label, image| {
         let dex_name = label
             .rsplit_once('!')
@@ -1090,7 +1114,7 @@ pub(crate) fn cmd_largest(args: &[String]) -> Result<()> {
             let Some(methods) = dex.methods_of(cdo as usize) else {
                 continue;
             };
-            for (midx, _acc, code_off) in methods {
+            for (midx, _, code_off) in methods {
                 if code_off == 0 || code_off as usize + 16 > dex.d.len() {
                     continue;
                 }
@@ -1100,27 +1124,38 @@ pub(crate) fn cmd_largest(args: &[String]) -> Result<()> {
                     dex.d[code_off as usize + 14],
                     dex.d[code_off as usize + 15],
                 ]) as usize;
+                // A full heap already holds `limit` rows at least this big
+                // whose scan order is earlier, so ties can never enter.
+                if heap.len() >= limit && heap.peek().is_some_and(|r| insns <= r.0.insns) {
+                    continue;
+                }
                 let method = dex
                     .method_parts(midx)
                     .map(|(_, p, nb)| format!("{}{}", decode_mutf8_lossy(nb), dex.proto_desc(p)))
                     .unwrap_or_default();
-                rows.push(Row {
+                heap.push(std::cmp::Reverse(Row {
                     insns,
+                    seq,
                     dex: dex_name.clone(),
                     class: class.clone(),
                     method,
-                });
+                }));
+                seq += 1;
+                if heap.len() > limit {
+                    heap.pop();
+                }
             }
         }
     })?;
-    rows.sort_by_key(|a| std::cmp::Reverse(a.insns));
+    let mut rows: Vec<Row> = heap.into_iter().map(|r| r.0).collect();
+    rows.sort_by(|a, b| b.insns.cmp(&a.insns).then_with(|| a.seq.cmp(&b.seq)));
     println!(
         "{:>7}  {:<10}  {}",
         bi!("insns", "指令数"),
         "dex",
         bi!("class method", "类 方法")
     );
-    for r in rows.into_iter().take(limit) {
+    for r in rows {
         println!("{:>7}  {:<10}  {} {}", r.insns, r.dex, r.class, r.method);
     }
     Ok(())
