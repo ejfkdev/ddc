@@ -602,6 +602,169 @@ pub fn type_descriptor_prefix_needed(image: &[u8]) -> Option<usize> {
     Some(need)
 }
 
+fn note_string_end(
+    image: &[u8],
+    str_off: usize,
+    str_n: usize,
+    idx: usize,
+    need: &mut usize,
+) {
+    if idx >= str_n {
+        return;
+    }
+    let id_off = str_off + 4 * idx;
+    if id_off + 4 > image.len() {
+        return;
+    }
+    let data_off = u32::from_le_bytes([
+        image[id_off],
+        image[id_off + 1],
+        image[id_off + 2],
+        image[id_off + 3],
+    ]) as usize;
+    match string_item_end(image, data_off) {
+        Ok(end) => *need = (*need).max(end),
+        Err(request) => *need = (*need).max(request),
+    }
+}
+
+/// Where the id tables end (string/type/proto/field/method/class_defs),
+/// once every one of them is fully inside `image`.
+fn member_tables_end(image: &[u8]) -> Option<usize> {
+    if image.len() < 0x70 || !image.starts_with(b"dex\n") {
+        return None;
+    }
+    let u4 = |o: usize| -> usize {
+        u32::from_le_bytes([image[o], image[o + 1], image[o + 2], image[o + 3]]) as usize
+    };
+    let end = u4(0x3c)
+        .saturating_add(4usize.saturating_mul(u4(0x38)))
+        .max(u4(0x44).saturating_add(4usize.saturating_mul(u4(0x40))))
+        .max(u4(0x4c).saturating_add(12usize.saturating_mul(u4(0x48))))
+        .max(u4(0x54).saturating_add(8usize.saturating_mul(u4(0x50))))
+        .max(u4(0x5c).saturating_add(8usize.saturating_mul(u4(0x58))))
+        .max(u4(0x64).saturating_add(32usize.saturating_mul(u4(0x60))));
+    (end <= image.len()).then_some(end)
+}
+
+/// Does the identifier prefix pay off for this image set? Probe the largest
+/// deflated image's id tables once; if its names reach most of the image,
+/// the prefix saves too little to be worth the extra checkpoints.
+pub fn member_prefix_wins(images: &[Image]) -> bool {
+    let Some(img) = images
+        .iter()
+        .filter(|i| matches!(i.method, ZipMethod::Deflate))
+        .max_by_key(|i| i.inflated_hint())
+    else {
+        return false;
+    };
+    let hint = img.usize_hint;
+    if hint == 0 {
+        return false;
+    }
+    let data = &img.data.bytes()[img.range.clone()];
+    let Ok(probe) = inflate_until_capacity(data, 0..data.len(), hint, |out| {
+        match member_tables_end(out) {
+            Some(end) if out.len() >= end => PrefixStep::Abort,
+            Some(end) => PrefixStep::Continue(end - out.len()),
+            None => PrefixStep::Continue(0),
+        }
+    }) else {
+        return false;
+    };
+    let needed = member_ids_prefix_needed(&probe).unwrap_or(hint);
+    needed.saturating_mul(4) <= hint.saturating_mul(3)
+}
+
+/// How far into a DEX image every id-table name/descriptor reaches.
+///
+/// `members` walks method_ids/field_ids and renders owner class names,
+/// member names and proto descriptors — it never reads class_data or code
+/// items. This prefix ends at the last such string payload, which on
+/// code-heavy APKs is well before the instruction stream.
+pub fn member_ids_prefix_needed(image: &[u8]) -> Option<usize> {
+    if image.len() < 0x70 {
+        return Some(0x70);
+    }
+    if !image.starts_with(b"dex\n") {
+        return Some(0);
+    }
+    let u4 = |o: usize| -> usize {
+        u32::from_le_bytes([image[o], image[o + 1], image[o + 2], image[o + 3]]) as usize
+    };
+    let u2 = |o: usize| -> usize { u16::from_le_bytes([image[o], image[o + 1]]) as usize };
+    let str_n = u4(0x38);
+    let str_off = u4(0x3c);
+    let type_n = u4(0x40);
+    let type_off = u4(0x44);
+    let proto_n = u4(0x48);
+    let proto_off = u4(0x4c);
+    let field_n = u4(0x50);
+    let field_off = u4(0x54);
+    let method_n = u4(0x58);
+    let method_off = u4(0x5c);
+    let cls_n = u4(0x60);
+    let cls_off = u4(0x64);
+
+    let tables_end = str_off
+        .saturating_add(4usize.saturating_mul(str_n))
+        .max(type_off.saturating_add(4usize.saturating_mul(type_n)))
+        .max(proto_off.saturating_add(12usize.saturating_mul(proto_n)))
+        .max(field_off.saturating_add(8usize.saturating_mul(field_n)))
+        .max(method_off.saturating_add(8usize.saturating_mul(method_n)))
+        .max(cls_off.saturating_add(32usize.saturating_mul(cls_n)));
+    if tables_end > image.len() {
+        return Some(tables_end);
+    }
+
+    let mut need = tables_end;
+    // Type descriptors: every owner class, field type and proto type is a
+    // type_id whose name comes from here.
+    for i in 0..type_n {
+        note_string_end(image, str_off, str_n, u4(type_off + 4 * i), &mut need);
+    }
+    for i in 0..field_n {
+        let p = field_off + 8 * i;
+        note_string_end(image, str_off, str_n, u4(p + 4), &mut need);
+    }
+    for i in 0..method_n {
+        let p = method_off + 8 * i;
+        note_string_end(image, str_off, str_n, u4(p + 4), &mut need);
+        let proto_idx = u2(p + 2);
+        if proto_idx >= proto_n {
+            continue;
+        }
+        let q = proto_off + 12 * proto_idx;
+        note_string_end(image, str_off, str_n, u4(q + 4), &mut need);
+        let params_off = u4(q + 8);
+        if params_off == 0 {
+            continue;
+        }
+        if params_off + 4 > image.len() {
+            need = need.max(params_off.saturating_add(4));
+            continue;
+        }
+        let count = u4(params_off);
+        let end = params_off
+            .saturating_add(4)
+            .saturating_add(2usize.saturating_mul(count));
+        if end > image.len() {
+            need = need.max(end);
+            continue;
+        }
+        for k in 0..count {
+            note_string_end(
+                image,
+                str_off,
+                str_n,
+                u2(params_off + 4 + 2 * k),
+                &mut need,
+            );
+        }
+    }
+    Some(need)
+}
+
 /// Header-only DEX summary: the counts `info` prints, without decoding any id
 /// table or string payload.
 #[derive(Debug, Clone)]
@@ -667,20 +830,37 @@ fn parse_dex_header_summary(image: &[u8]) -> Option<DexHeaderSummary> {
 /// bytes go straight to the caller (the browse commands run their own
 /// zero-materialization queries on them).
 pub fn inflate_images(images: Vec<Image>) -> Result<Vec<(Image, Vec<u8>)>> {
-    let mut handles = Vec::new();
+    inflate_images_with(images, "inflate", inflate_full_image)
+}
+
+fn inflate_full_image(img: &Image) -> std::result::Result<Vec<u8>, String> {
+    match img.method {
+        ZipMethod::Stored => Ok(img.data.bytes()[img.range.clone()].to_vec()),
+        ZipMethod::Deflate => crate::inflate_hint(
+            img.data.bytes()[img.range.clone()].as_ref(),
+            img.usize_hint,
+        )
+        .map_err(|e| e.to_string()),
+    }
+}
+
+fn inflate_images_with(
+    images: Vec<Image>,
+    what: &'static str,
+    inflate: impl Fn(&Image) -> std::result::Result<Vec<u8>, String>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+) -> Result<Vec<(Image, Vec<u8>)>> {
+    let mut handles = Vec::with_capacity(images.len());
     for img in images {
         let label = img.label.clone();
+        let inflate = inflate.clone();
         handles.push((
             label,
             std::thread::spawn(move || {
-                let raw = match img.method {
-                    ZipMethod::Stored => img.data.bytes()[img.range.clone()].to_vec(),
-                    ZipMethod::Deflate => crate::inflate_hint(
-                        img.data.bytes()[img.range.clone()].as_ref(),
-                        img.usize_hint,
-                    )
-                    .map_err(|e| e.to_string())?,
-                };
+                let raw = inflate(&img)?;
                 Ok::<_, String>((img, raw))
             }),
         ));
@@ -690,7 +870,7 @@ pub fn inflate_images(images: Vec<Image>) -> Result<Vec<(Image, Vec<u8>)>> {
         let (img, raw) = h
             .join()
             .map_err(|_| anyhow::anyhow!("inflate thread panicked: {}", name))?
-            .map_err(|e| anyhow::anyhow!("inflate {}: {}", name, e))?;
+            .map_err(|e| anyhow::anyhow!("{} {}: {}", what, name, e))?;
         out.push((img, raw));
     }
     Ok(out)
@@ -702,44 +882,25 @@ pub fn inflate_prefix_images(
     images: Vec<Image>,
     need: PrefixNeed,
 ) -> Result<Vec<(Image, Vec<u8>)>> {
-    let mut handles = Vec::with_capacity(images.len());
-    for img in images {
-        let label = img.label.clone();
-        handles.push((
-            label,
-            std::thread::spawn(move || {
-                let raw = match img.method {
-                    ZipMethod::Stored => img.data.bytes()[img.range.clone()].to_vec(),
-                    ZipMethod::Deflate => inflate_until_capacity(
-                        img.data.bytes(),
-                        img.range.clone(),
-                        img.usize_hint,
-                        |out| match need(out) {
-                            None => PrefixStep::Continue(0),
-                            Some(needed) => {
-                                if out.len() >= needed {
-                                    PrefixStep::Abort
-                                } else {
-                                    PrefixStep::Continue(needed - out.len())
-                                }
-                            }
-                        },
-                    )
-                    .map_err(|e| e.to_string())?,
-                };
-                Ok::<_, String>((img, raw))
-            }),
-        ));
-    }
-    let mut out = Vec::with_capacity(handles.len());
-    for (name, h) in handles {
-        let (img, raw) = h
-            .join()
-            .map_err(|_| anyhow::anyhow!("inflate thread panicked: {}", name))?
-            .map_err(|e| anyhow::anyhow!("inflate prefix {}: {}", name, e))?;
-        out.push((img, raw));
-    }
-    Ok(out)
+    inflate_images_with(images, "inflate prefix", move |img| match img.method {
+        ZipMethod::Stored => Ok(img.data.bytes()[img.range.clone()].to_vec()),
+        ZipMethod::Deflate => inflate_until_capacity(
+            img.data.bytes(),
+            img.range.clone(),
+            img.usize_hint,
+            |out| match need(out) {
+                None => PrefixStep::Continue(0),
+                Some(needed) => {
+                    if out.len() >= needed {
+                        PrefixStep::Abort
+                    } else {
+                        PrefixStep::Continue(needed - out.len())
+                    }
+                }
+            },
+        )
+        .map_err(|e| e.to_string()),
+    })
 }
 
 /// Inflate AND parse each image on its own thread. Returns
@@ -797,7 +958,8 @@ pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        class_names_prefix_needed, parse_dex_header_summary, type_descriptor_prefix_needed,
+        class_names_prefix_needed, member_ids_prefix_needed, parse_dex_header_summary,
+        type_descriptor_prefix_needed,
     };
 
     fn put_u4(data: &mut [u8], off: usize, value: u32) {
@@ -909,5 +1071,53 @@ mod tests {
             Some(interface_end)
         );
         assert!(interface_end < 0x200);
+    }
+
+    #[test]
+    fn member_prefix_covers_names_and_proto_types() {
+        let mut data = vec![0u8; 0x300];
+        data[..8].copy_from_slice(b"dex\n035\0");
+        put_u4(&mut data, 0x38, 3); // string_ids_size
+        put_u4(&mut data, 0x3c, 0x70); // string_ids_off
+        put_u4(&mut data, 0x40, 1); // type_ids_size
+        put_u4(&mut data, 0x44, 0x7c); // type_ids_off
+        put_u4(&mut data, 0x48, 1); // proto_ids_size
+        put_u4(&mut data, 0x4c, 0x80); // proto_ids_off
+        put_u4(&mut data, 0x50, 0); // field_ids_size
+        put_u4(&mut data, 0x54, 0x8c); // field_ids_off
+        put_u4(&mut data, 0x58, 1); // method_ids_size
+        put_u4(&mut data, 0x5c, 0x8c); // method_ids_off
+        put_u4(&mut data, 0x60, 0); // class_defs_size
+        put_u4(&mut data, 0x64, 0x94); // class_defs_off
+
+        put_u4(&mut data, 0x70, 0x100); // string 0: class descriptor
+        put_u4(&mut data, 0x74, 0x180); // string 1: method name
+        put_u4(&mut data, 0x78, 0x200); // string 2: unrelated
+        put_u4(&mut data, 0x7c, 0); // type 0 -> string 0
+        put_u4(&mut data, 0x80, 0); // proto shorty
+        put_u4(&mut data, 0x84, 0); // proto return type 0
+        put_u4(&mut data, 0x88, 0); // proto params_off
+        data[0x8c..0x8e].copy_from_slice(&0u16.to_le_bytes()); // method class_idx
+        data[0x8e..0x90].copy_from_slice(&0u16.to_le_bytes()); // method proto_idx
+        put_u4(&mut data, 0x90, 1); // method name_idx
+
+        let class = b"Lfoo/Bar;";
+        data[0x100] = class.len() as u8;
+        data[0x101..0x101 + class.len()].copy_from_slice(class);
+        data[0x101 + class.len()] = 0;
+
+        let name = b"run";
+        data[0x180] = name.len() as u8;
+        data[0x181..0x181 + name.len()].copy_from_slice(name);
+        let name_end = 0x181 + name.len() + 1;
+        data[0x181 + name.len()] = 0;
+
+        let unrelated = b"unrelated";
+        data[0x200] = unrelated.len() as u8;
+        data[0x201..0x201 + unrelated.len()].copy_from_slice(unrelated);
+        data[0x201 + unrelated.len()] = 0;
+
+        assert_eq!(member_ids_prefix_needed(&data), Some(name_end));
+        assert!(name_end < 0x200);
     }
 }

@@ -14,7 +14,9 @@ use anyhow::{bail, Context, Result};
 use crate::inputs::{
     collect_images, expand_inputs, filter_images_by_dex, is_dex_ext, dir_has_dex_files,
 };
-use crate::browse::{for_each_image, for_each_prefix_image};
+use crate::browse::{
+    for_each_image, for_each_image_named, for_each_member_image, for_each_prefix_image,
+};
 use crate::findrefs::{decode_mutf8_lossy, RawDex};
 
 // ---- responses ---------------------------------------------------------------
@@ -988,7 +990,10 @@ fn member_scan(
     mut emit: impl FnMut(MemberRow),
 ) -> Result<usize> {
     let mut index = 0usize;
-    for_each_image(&input.to_path_buf(), dex_filters, &mut |label, image| {
+    for_each_member_image(
+        &input.to_path_buf(),
+        dex_filters,
+        &mut |label, image| {
         let dex_name = label
             .rsplit_once('!')
             .map(|(_, e)| e)
@@ -1047,7 +1052,8 @@ fn member_scan(
                 index += 1;
             }
         }
-    })?;
+        },
+    )?;
     Ok(index)
 }
 
@@ -1095,7 +1101,10 @@ pub fn member_class_counts(
         kind_want,
     };
     let mut by_name: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for_each_image(&input.to_path_buf(), dex_filters, &mut |_label, image| {
+    for_each_member_image(
+        &input.to_path_buf(),
+        dex_filters,
+        &mut |_label, image| {
         let Ok(dex) = RawDex::parse(image) else {
             return;
         };
@@ -1147,7 +1156,8 @@ pub fn member_class_counts(
                 }
             }
         }
-    })?;
+        },
+    )?;
     Ok(by_name.into_iter().collect())
 }
 
@@ -1270,7 +1280,7 @@ pub fn disasm_text(input: &Path, target: &str, dex_filters: &[String]) -> Result
     let mut found_class = false;
     let mut wanted_method: Option<String> = None;
     let mut printed_method = false;
-    for_each_image(&input.to_path_buf(), dex_filters, &mut |label, image| {
+    let mut scan = |label: &str, image: &[u8]| {
         let Ok(dex) = RawDex::parse(image) else {
             return;
         };
@@ -1337,7 +1347,39 @@ pub fn disasm_text(input: &Path, target: &str, dex_filters: &[String]) -> Result
                 ));
             }
         }
-    })?;
+    };
+
+    // Which images define the class? A class-descriptor prefix is enough to
+    // answer that; only those images are then inflated in full. On a 50-dex
+    // APK this skips tens of unrelated full decompressions.
+    let mut wanted_classes = vec![class_full.as_str()];
+    if let Some((c, _)) = &split {
+        wanted_classes.push(c.as_str());
+    }
+    let mut labels: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for_each_prefix_image(
+        &input.to_path_buf(),
+        dex_filters,
+        crate::inputs::class_names_prefix_needed,
+        &mut |label, image| {
+            let Ok(dex) = RawDex::parse(image) else {
+                return;
+            };
+            if wanted_classes
+                .iter()
+                .any(|c| dex.find_class(c).is_some())
+            {
+                labels.insert(label.to_string());
+            }
+        },
+    )?;
+    if labels.is_empty() {
+        // Keep the full scan (and its exact not-found error) when the prefix
+        // pass saw no match.
+        for_each_image(&input.to_path_buf(), dex_filters, &mut scan)?;
+    } else {
+        for_each_image_named(&input.to_path_buf(), dex_filters, &labels, &mut scan)?;
+    }
     if !found_class {
         bail!(
             crate::lang::bif!(
