@@ -3,6 +3,7 @@
 //! path (raw images, prefix-friendly), mirroring jadx's quick-lookup tools.
 
 use anyhow::{bail, Context, Result};
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use crate::findrefs::{decode_mutf8_lossy, RawDex};
@@ -393,7 +394,12 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
     }
 
     if rf == crate::ResolvedFormat::Text {
-        println!(
+        // One buffered writer for the whole table: per-line println! flushes
+        // the line-buffered stdout on every row (millions of syscalls).
+        let stdout = std::io::stdout();
+        let mut out = std::io::BufWriter::new(stdout.lock());
+        writeln!(
+            out,
             "{:10}  {}",
             "dex",
             if with_loc {
@@ -401,7 +407,7 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
             } else {
                 bi!("string", "字符串")
             }
-        );
+        )?;
         let shown = std::cell::Cell::new(0usize);
         let total = crate::api::string_scan_window(
             &common.input,
@@ -412,13 +418,14 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
             limit,
             |r| {
                 if r.used_by.is_empty() {
-                    println!("{:10}  {}", r.dex, r.string);
+                    let _ = writeln!(out, "{:10}  {}", r.dex, r.string);
                 } else {
-                    println!("{:10}  {}  {}", r.dex, r.string, r.used_by.join("; "));
+                    let _ = writeln!(out, "{:10}  {}  {}", r.dex, r.string, r.used_by.join("; "));
                 }
                 shown.set(shown.get() + 1);
             },
         )?;
+        out.flush()?;
         if limit != 0 || offset != 0 {
             let end = offset.saturating_add(shown.get());
             eprintln!(
@@ -674,12 +681,15 @@ pub(crate) fn cmd_members(args: &[String]) -> Result<()> {
 
     // 平铺视图（旧行为）：只格式化窗口内的行，total 由扫描计数得出。
     if rf == crate::ResolvedFormat::Text {
-        println!(
+        let stdout = std::io::stdout();
+        let mut out = std::io::BufWriter::new(stdout.lock());
+        writeln!(
+            out,
             "{:10}  {:<6}  {}",
             "dex",
             bi!("kind", "类型"),
             bi!("class member", "类 成员")
-        );
+        )?;
         let shown = std::cell::Cell::new(0usize);
         let total = crate::api::member_scan_window(
             &common.input,
@@ -691,7 +701,8 @@ pub(crate) fn cmd_members(args: &[String]) -> Result<()> {
             offset,
             limit,
             |r| {
-                println!(
+                let _ = writeln!(
+                    out,
                     "{:10}  {:<6}  {} {}",
                     r.dex,
                     r.kind,
@@ -701,6 +712,7 @@ pub(crate) fn cmd_members(args: &[String]) -> Result<()> {
                 shown.set(shown.get() + 1);
             },
         )?;
+        out.flush()?;
         if limit != 0 || offset != 0 {
             let end = offset.saturating_add(shown.get());
             eprintln!(

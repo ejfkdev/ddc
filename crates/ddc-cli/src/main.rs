@@ -2323,9 +2323,12 @@ fn cmd_listclasses(args: &[String], _t0: std::time::Instant) -> Result<()> {
         }
         return print_report(rf, &page.names);
     }
+    let stdout = std::io::stdout();
+    let mut out = std::io::BufWriter::new(stdout.lock());
     for name in &page.names {
-        println!("{}", name);
+        writeln!(out, "{name}")?;
     }
+    out.flush()?;
     if limit != 0 || offset != 0 {
         let end = offset.saturating_add(page.names.len());
         let next = if end < page.total { Some(end) } else { None };
@@ -3625,9 +3628,12 @@ fn write_lines(out: &Option<PathBuf>, lines: &[String], t0: std::time::Instant, 
             );
         }
         None => {
+            let stdout = std::io::stdout();
+            let mut out = std::io::BufWriter::new(stdout.lock());
             for l in lines {
-                println!("{l}");
+                writeln!(out, "{l}")?;
             }
+            out.flush()?;
         }
     }
     Ok(())
