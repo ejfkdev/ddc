@@ -2907,15 +2907,21 @@ fn prefix_or_full(
 
 // ---- findrefs ---------------------------------------------------------------
 
-/// The pipelined findrefs scan (producer waves + bounded scanners),
-/// extracted so the CLI command and the typed query cores (api.rs /
-/// xyz frontends) share one pipeline. Returns hits + the collect time
-/// (the DDC_WALL probe keeps its phase split).
-fn findrefs_scan(
+/// What the pipelined scan keeps per hit: full rows for `--full`, or one
+/// owner-class count for the default prefix summary.
+enum RefScanOut {
+    Hits(Vec<findrefs::Hit>),
+    Counts(std::collections::BTreeMap<String, usize>),
+}
+
+/// The pipelined findrefs scan (producer pool + bounded scanners), shared by
+/// the CLI command and the typed query cores (api.rs / xyz frontends).
+fn findrefs_scan_impl(
     input: &Path,
     query: &findrefs::FindQuery,
     dex_filters: &[String],
-) -> Result<(Vec<findrefs::Hit>, std::time::Duration)> {
+    counts_only: bool,
+) -> Result<(RefScanOut, std::time::Duration)> {
     let files = expand_inputs(&[input.to_path_buf()])?;
     let t_wall = std::time::Instant::now();
     let images = filter_images_by_dex(collect_images(&files)?, dex_filters)?;
@@ -2998,24 +3004,45 @@ fn findrefs_scan(
         })
     };
     let mut hits = Vec::new();
+    let mut counts: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         for _ in 0..SCANNERS {
             let chan = &chan;
             let query = query.clone();
-            handles.push(scope.spawn(move || -> Vec<findrefs::Hit> {
-                let mut out = Vec::new();
-                while let Some((label, image, pre)) = chan.pop() {
-                    if let Ok(mut one) = findrefs::scan_image(&label, &image, &query, pre) {
-                        out.append(&mut one);
+            handles.push(scope.spawn(move || -> RefScanOut {
+                if counts_only {
+                    let mut map: std::collections::BTreeMap<String, usize> =
+                        std::collections::BTreeMap::new();
+                    while let Some((label, image, pre)) = chan.pop() {
+                        if let Ok(one) = findrefs::scan_image(&label, &image, &query, pre) {
+                            for h in one {
+                                *map.entry(h.class.replace('/', ".")).or_default() += 1;
+                            }
+                        }
                     }
+                    RefScanOut::Counts(map)
+                } else {
+                    let mut out = Vec::new();
+                    while let Some((label, image, pre)) = chan.pop() {
+                        if let Ok(mut one) = findrefs::scan_image(&label, &image, &query, pre) {
+                            out.append(&mut one);
+                        }
+                    }
+                    RefScanOut::Hits(out)
                 }
-                out
             }));
         }
         for h in handles {
-            if let Ok(v) = h.join() {
-                hits.extend(v);
+            match h.join() {
+                Ok(RefScanOut::Hits(v)) => hits.extend(v),
+                Ok(RefScanOut::Counts(m)) => {
+                    for (k, v) in m {
+                        *counts.entry(k).or_default() += v;
+                    }
+                }
+                Err(_) => {}
             }
         }
     });
@@ -3023,16 +3050,50 @@ fn findrefs_scan(
         .join()
         .map_err(|_| anyhow::anyhow!("parse producer panicked"))??;
     let t_scan = t_wall.elapsed();
+    let out = if counts_only {
+        RefScanOut::Counts(counts)
+    } else {
+        hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
+        RefScanOut::Hits(hits)
+    };
     if std::env::var("DDC_WALL").is_ok() {
+        let hit_count = match &out {
+            RefScanOut::Hits(h) => h.len(),
+            RefScanOut::Counts(m) => m.values().sum(),
+        };
         eprintln!(
             "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
             t_cd,
             t_scan - t_cd,
-            hits.len()
+            hit_count
         );
     }
-    hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
-    Ok((hits, t_cd))
+    Ok((out, t_cd))
+}
+
+fn findrefs_scan(
+    input: &Path,
+    query: &findrefs::FindQuery,
+    dex_filters: &[String],
+) -> Result<(Vec<findrefs::Hit>, std::time::Duration)> {
+    match findrefs_scan_impl(input, query, dex_filters, false)? {
+        (RefScanOut::Hits(hits), t) => Ok((hits, t)),
+        (RefScanOut::Counts(_), _) => unreachable!("hit mode returned counts"),
+    }
+}
+
+/// Summary-only scan: keep one owner-class count per hit instead of every
+/// (class, method, targets) row. A broad query on qq (845k hits) otherwise
+/// built ~500MB of row strings before the tree was rendered.
+fn findrefs_scan_counts(
+    input: &Path,
+    query: &findrefs::FindQuery,
+    dex_filters: &[String],
+) -> Result<(std::collections::BTreeMap<String, usize>, std::time::Duration)> {
+    match findrefs_scan_impl(input, query, dex_filters, true)? {
+        (RefScanOut::Counts(counts), t) => Ok((counts, t)),
+        (RefScanOut::Hits(_), _) => unreachable!("count mode returned hits"),
+    }
 }
 
 fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
@@ -3184,29 +3245,29 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
         ),
     };
 
-    let t_wall = std::time::Instant::now();
-    let (mut hits, t_cd) = findrefs_scan(&input, &query, &dex_filters)?;
-    let t_scan = t_wall.elapsed();
-    if std::env::var("DDC_WALL").is_ok() {
-        eprintln!(
-            "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
-            t_cd,
-            t_scan - t_cd,
-            hits.len()
-        );
-    }
-    hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
-    if let Some(p) = &prefix {
-        hits.retain(|h| crate::api::under_prefix(&h.class.replace('/', "."), p, '.'));
-    }
     let rf = resolve_format(format);
     let summary = !full;
+    let t_wall = std::time::Instant::now();
 
     if summary {
         // 按 owner 类做前缀目录：一行 = 分叉包（命中数）或类（命中数）。
-        let keys: Vec<String> = hits.iter().map(|h| h.class.replace('/', ".")).collect();
+        // 只聚合类计数：宽查询（qq 845k 命中）不再为每个方法建行。
+        let (mut counts, t_cd) = findrefs_scan_counts(&input, &query, &dex_filters)?;
+        let t_scan = t_wall.elapsed();
+        if std::env::var("DDC_WALL").is_ok() {
+            let hit_count: usize = counts.values().sum();
+            eprintln!(
+                "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
+                t_cd,
+                t_scan - t_cd,
+                hit_count
+            );
+        }
+        if let Some(p) = &prefix {
+            counts.retain(|k, _| crate::api::under_prefix(k, p, '.'));
+        }
         let mut rows = crate::api::prefix_tree_sampled(
-            keys.iter().map(|k| (k.as_str(), 1usize)),
+            counts.iter().map(|(k, c)| (k.as_str(), *c)),
             prefix.as_deref(),
             depth,
             '.',
@@ -3296,6 +3357,21 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
             );
         }
         return Ok(());
+    }
+
+    let (mut hits, t_cd) = findrefs_scan(&input, &query, &dex_filters)?;
+    let t_scan = t_wall.elapsed();
+    if std::env::var("DDC_WALL").is_ok() {
+        eprintln!(
+            "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
+            t_cd,
+            t_scan - t_cd,
+            hits.len()
+        );
+    }
+    hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
+    if let Some(p) = &prefix {
+        hits.retain(|h| crate::api::under_prefix(&h.class.replace('/', "."), p, '.'));
     }
 
     // 平铺视图：行 = 命中方法（与原行为一致），窗口作用在行上。
