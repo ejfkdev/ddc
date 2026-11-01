@@ -286,25 +286,26 @@ fn findrefs(_ctx: &Ctx, a: &FindRefsArgs) -> XyzResult<Vec<serde_json::Value>> {
         let n = api::normalize_class_prefix(&a.prefix);
         if n.is_empty() { None } else { Some(n) }
     };
-    let mut rows = api::ref_rows(
-        &p(&a.input),
-        &a.kind,
-        &a.query,
-        empty_or_some(&a.class),
-        a.fuzzy_class,
-        &a.dex,
-    )
-    .map_err(map_err)?;
-    if let Some(pfx) = &prefix {
-        rows.retain(|r| api::under_prefix(&r.class, pfx, '.'));
-    }
     let limit = a.limit as usize;
     let offset = a.offset as usize;
     if !a.full {
-        let keys: Vec<String> = rows.iter().map(|r| r.class.clone()).collect();
+        // Summary only needs owner-class counts: building one row per hit
+        // (845k on a broad qq query) is what made the frontends allocate ~1GB.
+        let mut counts = api::ref_class_counts(
+            &p(&a.input),
+            &a.kind,
+            &a.query,
+            empty_or_some(&a.class),
+            a.fuzzy_class,
+            &a.dex,
+        )
+        .map_err(map_err)?;
+        if let Some(pfx) = &prefix {
+            counts.retain(|k, _| api::under_prefix(k, pfx, '.'));
+        }
         let depth = if a.depth == 0 { None } else { Some(a.depth as usize) };
         let mut tree = api::prefix_tree_sampled(
-            keys.iter().map(|k| (k.as_str(), 1usize)),
+            counts.iter().map(|(k, c)| (k.as_str(), *c)),
             prefix.as_deref(),
             depth,
             '.',
@@ -334,7 +335,40 @@ fn findrefs(_ctx: &Ctx, a: &FindRefsArgs) -> XyzResult<Vec<serde_json::Value>> {
         }
         return Ok(out);
     }
-    let rp = api::window_rows(rows, offset, limit);
+    // Paged full rows: keep only the requested sorted prefix; a prefix
+    // filter needs the full set so it falls back to the unbounded scan.
+    let paged = limit != 0 && prefix.is_none();
+    let (mut rows, total_override) = if paged {
+        let (rows, total) = api::ref_rows_window(
+            &p(&a.input),
+            &a.kind,
+            &a.query,
+            empty_or_some(&a.class),
+            a.fuzzy_class,
+            &a.dex,
+            offset.saturating_add(limit),
+        )
+        .map_err(map_err)?;
+        (rows, Some(total))
+    } else {
+        (
+            api::ref_rows(
+                &p(&a.input),
+                &a.kind,
+                &a.query,
+                empty_or_some(&a.class),
+                a.fuzzy_class,
+                &a.dex,
+            )
+            .map_err(map_err)?,
+            None,
+        )
+    };
+    if let Some(pfx) = &prefix {
+        rows.retain(|r| api::under_prefix(&r.class, pfx, '.'));
+    }
+    let total = total_override.unwrap_or(rows.len());
+    let rp = api::window_rows_total(rows, offset, limit, total);
     let mut out: Vec<serde_json::Value> = rp
         .rows
         .iter()

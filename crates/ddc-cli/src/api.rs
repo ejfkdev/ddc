@@ -1430,15 +1430,13 @@ pub fn disasm_text(input: &Path, target: &str, dex_filters: &[String]) -> Result
 /// accepted as an alias of `type`). Mirrors the
 /// `findrefs` command: the pipelined scan drops each image after
 /// scanning, so resident memory stays bounded.
-pub fn ref_rows(
-    input: &Path,
+pub(crate) fn find_query(
     kind: &str,
     query: &str,
     class: Option<&str>,
     fuzzy_class: bool,
-    dex_filters: &[String],
-) -> Result<Vec<RefRow>> {
-    let q = match kind {
+) -> Result<crate::findrefs::FindQuery> {
+    Ok(match kind {
         "string" => crate::findrefs::FindQuery::String(query.to_string()),
         // `class` is the plain-word alias for `type` — same search.
         "type" | "class" => crate::findrefs::FindQuery::Type(query.to_string()),
@@ -1453,20 +1451,63 @@ pub fn ref_rows(
             fuzzy_class,
         },
         other => bail!("findrefs: unknown kind {other:?} (string|type|class|method|field)"),
-    };
+    })
+}
+
+fn ref_row_from_hit(h: &crate::findrefs::Hit) -> RefRow {
+    RefRow {
+        dex: h.dex.clone(),
+        kind: h.insn.to_string(),
+        class: h.class.replace('/', "."),
+        method: h.method.clone(),
+        targets: h.targets.clone(),
+    }
+}
+
+pub fn ref_rows(
+    input: &Path,
+    kind: &str,
+    query: &str,
+    class: Option<&str>,
+    fuzzy_class: bool,
+    dex_filters: &[String],
+) -> Result<Vec<RefRow>> {
+    let q = find_query(kind, query, class, fuzzy_class)?;
     let (hits, _t) = crate::findrefs_scan(input, &q, dex_filters)?;
-    let mut rows: Vec<RefRow> = hits
-        .iter()
-        .map(|h| RefRow {
-            dex: h.dex.clone(),
-            kind: h.insn.to_string(),
-            class: h.class.replace('/', "."),
-            method: h.method.clone(),
-            targets: h.targets.clone(),
-        })
-        .collect();
-    rows.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
-    Ok(rows)
+    // findrefs_scan already orders by class/method/dex; re-sorting here would
+    // drop the dex tiebreaker and make duplicate definitions nondeterministic.
+    Ok(hits.iter().map(ref_row_from_hit).collect())
+}
+
+/// Summary counts for the frontends: one owner-class count per hit, without
+/// materializing a row per hit.
+pub fn ref_class_counts(
+    input: &Path,
+    kind: &str,
+    query: &str,
+    class: Option<&str>,
+    fuzzy_class: bool,
+    dex_filters: &[String],
+) -> Result<std::collections::BTreeMap<String, usize>> {
+    let q = find_query(kind, query, class, fuzzy_class)?;
+    let (counts, _t) = crate::findrefs_scan_counts(input, &q, dex_filters)?;
+    Ok(counts)
+}
+
+/// Paged full rows: the first `want` rows in output order plus the total hit
+/// count, without building every row.
+pub fn ref_rows_window(
+    input: &Path,
+    kind: &str,
+    query: &str,
+    class: Option<&str>,
+    fuzzy_class: bool,
+    dex_filters: &[String],
+    want: usize,
+) -> Result<(Vec<RefRow>, usize)> {
+    let q = find_query(kind, query, class, fuzzy_class)?;
+    let (hits, total, _t) = crate::findrefs_scan_top(input, &q, dex_filters, want)?;
+    Ok((hits.iter().map(ref_row_from_hit).collect(), total))
 }
 
 // Keep the positional-output probe helpers referenced (they mirror the

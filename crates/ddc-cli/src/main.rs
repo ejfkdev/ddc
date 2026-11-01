@@ -3172,7 +3172,7 @@ fn findrefs_scan(
 /// Summary-only scan: keep one owner-class count per hit instead of every
 /// (class, method, targets) row. A broad query on qq (845k hits) otherwise
 /// built ~500MB of row strings before the tree was rendered.
-fn findrefs_scan_counts(
+pub(crate) fn findrefs_scan_counts(
     input: &Path,
     query: &findrefs::FindQuery,
     dex_filters: &[String],
@@ -3186,7 +3186,7 @@ fn findrefs_scan_counts(
 /// Paged full scan: keep only the first `want` sorted hits, while still
 /// counting every hit. `--full --limit` used to build all rows (845k on a
 /// broad qq query) just to print one page.
-fn findrefs_scan_top(
+pub(crate) fn findrefs_scan_top(
     input: &Path,
     query: &findrefs::FindQuery,
     dex_filters: &[String],
