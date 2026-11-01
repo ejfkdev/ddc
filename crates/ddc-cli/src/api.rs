@@ -16,8 +16,12 @@ use crate::inputs::{
 };
 use crate::browse::{
     for_each_image, for_each_image_named, for_each_member_image, for_each_prefix_image,
+    for_each_string_image,
 };
 use crate::findrefs::{decode_mutf8_lossy, RawDex};
+
+/// Shared signature of `for_each_image` and its prefix variants.
+type ImageEachFn = fn(&PathBuf, &[String], &mut dyn FnMut(&str, &[u8])) -> Result<()>;
 
 // ---- responses ---------------------------------------------------------------
 
@@ -803,7 +807,12 @@ pub fn string_scan_window(
     mut emit: impl FnMut(StringRow),
 ) -> Result<usize> {
     let mut base = 0usize;
-    for_each_image(&input.to_path_buf(), dex_filters, &mut |label, image| {
+    let each: ImageEachFn = if with_locations {
+            for_each_image
+        } else {
+            for_each_string_image
+        };
+    each(&input.to_path_buf(), dex_filters, &mut |label, image| {
         let dex_name = label
             .rsplit_once('!')
             .map(|(_, e)| e)

@@ -20,7 +20,7 @@ pub(crate) fn for_each_image(
     dex_filters: &[String],
     f: &mut dyn FnMut(&str, &[u8]),
 ) -> Result<()> {
-    for_each_image_impl(None, None, false, input, dex_filters, f)
+    for_each_image_impl(None, None, false, false, input, dex_filters, f)
 }
 
 /// Same contract as [`for_each_image`], but only images whose label is in
@@ -32,7 +32,7 @@ pub(crate) fn for_each_image_named(
     labels: &std::collections::HashSet<String>,
     f: &mut dyn FnMut(&str, &[u8]),
 ) -> Result<()> {
-    for_each_image_impl(None, Some(labels), false, input, dex_filters, f)
+    for_each_image_impl(None, Some(labels), false, false, input, dex_filters, f)
 }
 
 /// Same contract as [`for_each_image`], but deflated images stop at the
@@ -44,7 +44,7 @@ pub(crate) fn for_each_prefix_image(
     need: PrefixNeed,
     f: &mut dyn FnMut(&str, &[u8]),
 ) -> Result<()> {
-    for_each_image_impl(Some(need), None, false, input, dex_filters, f)
+    for_each_image_impl(Some(need), None, false, false, input, dex_filters, f)
 }
 
 /// Same contract as [`for_each_image`], but the identifier prefix is used
@@ -55,13 +55,25 @@ pub(crate) fn for_each_member_image(
     dex_filters: &[String],
     f: &mut dyn FnMut(&str, &[u8]),
 ) -> Result<()> {
-    for_each_image_impl(None, None, true, input, dex_filters, f)
+    for_each_image_impl(None, None, true, false, input, dex_filters, f)
+}
+
+/// Same contract as [`for_each_image`], but the string-table prefix is used
+/// only when a one-image probe shows it ends well before the image tail;
+/// otherwise every image inflates in full.
+pub(crate) fn for_each_string_image(
+    input: &PathBuf,
+    dex_filters: &[String],
+    f: &mut dyn FnMut(&str, &[u8]),
+) -> Result<()> {
+    for_each_image_impl(None, None, false, true, input, dex_filters, f)
 }
 
 fn for_each_image_impl(
     prefix: Option<PrefixNeed>,
     only_labels: Option<&std::collections::HashSet<String>>,
     member: bool,
+    strings: bool,
     input: &PathBuf,
     dex_filters: &[String],
     f: &mut dyn FnMut(&str, &[u8]),
@@ -72,6 +84,7 @@ fn for_each_image_impl(
         images.retain(|img| labels.contains(&img.label));
     }
     let member_prefix = member.then(|| crate::inputs::member_prefix_wins(&images));
+    let string_prefix = strings.then(|| crate::inputs::string_prefix_wins(&images));
     // 自然顺序输出的分波解压：每波最多 8 个映像，且本波解压后总量
     // 控制在 64MB 左右（单个大映像独占一波）。回调顺序与输入顺序一致
     // ——翻页契约要求可文档化的稳定序。固定 8 个时一波可能同时驻留
@@ -94,14 +107,23 @@ fn for_each_image_impl(
         }
         let take = take.clamp(1, images.len());
         let wave: Vec<_> = images.drain(..take).collect();
-        let inflated = match (member_prefix, prefix) {
-            (Some(true), _) => inflate_prefix_images(
-                wave,
-                crate::inputs::member_ids_prefix_needed,
-            )?,
-            (Some(false), _) => inflate_images(wave)?,
-            (None, Some(need)) => inflate_prefix_images(wave, need)?,
-            (None, None) => inflate_images(wave)?,
+        let inflated = if let Some(use_prefix) = member_prefix {
+            if use_prefix {
+                inflate_prefix_images(wave, crate::inputs::member_ids_prefix_needed)?
+            } else {
+                inflate_images(wave)?
+            }
+        } else if let Some(use_prefix) = string_prefix {
+            if use_prefix {
+                inflate_prefix_images(wave, crate::inputs::string_table_prefix_needed)?
+            } else {
+                inflate_images(wave)?
+            }
+        } else {
+            match prefix {
+                Some(need) => inflate_prefix_images(wave, need)?,
+                None => inflate_images(wave)?,
+            }
         };
         for (img, raw) in inflated {
             f(&img.label, &raw);

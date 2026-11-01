@@ -602,6 +602,90 @@ pub fn type_descriptor_prefix_needed(image: &[u8]) -> Option<usize> {
     Some(need)
 }
 
+/// The three id tables `RawDex::parse` needs, plus where they end.
+fn string_table_bounds(image: &[u8]) -> Option<(usize, usize, usize)> {
+    if image.len() < 0x70 || !image.starts_with(b"dex\n") {
+        return None;
+    }
+    let u4 = |o: usize| -> usize {
+        u32::from_le_bytes([image[o], image[o + 1], image[o + 2], image[o + 3]]) as usize
+    };
+    let str_n = u4(0x38);
+    let str_off = u4(0x3c);
+    let type_n = u4(0x40);
+    let type_off = u4(0x44);
+    let cls_n = u4(0x60);
+    let cls_off = u4(0x64);
+    let tables_end = str_off
+        .saturating_add(4usize.saturating_mul(str_n))
+        .max(type_off.saturating_add(4usize.saturating_mul(type_n)))
+        .max(cls_off.saturating_add(32usize.saturating_mul(cls_n)));
+    Some((str_n, str_off, tables_end))
+}
+
+/// How far into a DEX image the whole string table reaches. Used by the
+/// no-locations `strings` path, which needs every string payload but no code
+/// items or class_data.
+pub fn string_table_prefix_needed(image: &[u8]) -> Option<usize> {
+    if image.len() < 0x70 {
+        return Some(0x70);
+    }
+    let Some((str_n, str_off, tables_end)) = string_table_bounds(image) else {
+        return Some(0);
+    };
+    if tables_end > image.len() {
+        return Some(tables_end);
+    }
+    let u4 = |o: usize| -> usize {
+        u32::from_le_bytes([image[o], image[o + 1], image[o + 2], image[o + 3]]) as usize
+    };
+    let mut need = tables_end;
+    for i in 0..str_n {
+        let data_off = u4(str_off + 4 * i);
+        match string_item_end(image, data_off) {
+            Ok(end) => need = need.max(end),
+            Err(request) => need = need.max(request),
+        }
+    }
+    Some(need)
+}
+
+/// Tables-only prefix: stops once every string_id is readable, which is
+/// enough to learn the largest string offset before inflating any payload.
+fn string_tables_end(image: &[u8]) -> Option<usize> {
+    let (_, _, tables_end) = string_table_bounds(image)?;
+    (tables_end <= image.len()).then_some(tables_end)
+}
+
+/// Does the string-table prefix pay off for this image set? Probe the largest
+/// deflated image's id tables once; a pool that reaches most of the image
+/// gains too little to justify the extra checkpoints.
+pub fn string_prefix_wins(images: &[Image]) -> bool {
+    let Some(img) = images
+        .iter()
+        .filter(|i| matches!(i.method, ZipMethod::Deflate))
+        .max_by_key(|i| i.inflated_hint())
+    else {
+        return false;
+    };
+    let hint = img.usize_hint;
+    if hint == 0 {
+        return false;
+    }
+    let data = &img.data.bytes()[img.range.clone()];
+    let Ok(probe) = inflate_until_capacity(data, 0..data.len(), hint, |out| {
+        match string_tables_end(out) {
+            Some(end) if out.len() >= end => PrefixStep::Abort,
+            Some(end) => PrefixStep::Continue(end - out.len()),
+            None => PrefixStep::Continue(0),
+        }
+    }) else {
+        return false;
+    };
+    let needed = string_table_prefix_needed(&probe).unwrap_or(hint);
+    needed.saturating_mul(4) <= hint.saturating_mul(3)
+}
+
 fn note_string_end(
     image: &[u8],
     str_off: usize,
@@ -959,7 +1043,7 @@ pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
 mod tests {
     use super::{
         class_names_prefix_needed, member_ids_prefix_needed, parse_dex_header_summary,
-        type_descriptor_prefix_needed,
+        string_table_prefix_needed, type_descriptor_prefix_needed,
     };
 
     fn put_u4(data: &mut [u8], off: usize, value: u32) {
@@ -1119,5 +1203,34 @@ mod tests {
 
         assert_eq!(member_ids_prefix_needed(&data), Some(name_end));
         assert!(name_end < 0x200);
+    }
+
+    #[test]
+    fn string_prefix_covers_unrelated_strings_too() {
+        let mut data = vec![0u8; 0x300];
+        data[..8].copy_from_slice(b"dex\n035\0");
+        put_u4(&mut data, 0x38, 2); // string_ids_size
+        put_u4(&mut data, 0x3c, 0x70); // string_ids_off
+        put_u4(&mut data, 0x40, 0); // type_ids_size
+        put_u4(&mut data, 0x44, 0x78); // type_ids_off
+        put_u4(&mut data, 0x60, 0); // class_defs_size
+        put_u4(&mut data, 0x64, 0x78); // class_defs_off
+
+        put_u4(&mut data, 0x70, 0x100); // string 0
+        put_u4(&mut data, 0x74, 0x200); // string 1 at the tail
+
+        let first = b"Lfoo/Bar;";
+        data[0x100] = first.len() as u8;
+        data[0x101..0x101 + first.len()].copy_from_slice(first);
+        data[0x101 + first.len()] = 0;
+
+        let tail = b"plain-text";
+        data[0x200] = tail.len() as u8;
+        data[0x201..0x201 + tail.len()].copy_from_slice(tail);
+        let tail_end = 0x201 + tail.len() + 1;
+        data[0x201 + tail.len()] = 0;
+
+        assert_eq!(string_table_prefix_needed(&data), Some(tail_end));
+        assert!(tail_end > 0x100 + first.len());
     }
 }
