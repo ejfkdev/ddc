@@ -4836,6 +4836,20 @@ pub(crate) fn inflate(data: &[u8]) -> Result<Vec<u8>> {
 /// `inflate` with the central directory's uncompressed size: one exact
 /// allocation instead of the doubling realloc chain.
 pub(crate) fn inflate_hint(data: &[u8], usize_hint: usize) -> Result<Vec<u8>> {
+    // Whole-image inflate has an exact size hint from the ZIP directory:
+    // libdeflater fills it in one call (much faster than streaming flate2).
+    // On any mismatch/error fall back to the streaming decoder, so odd ZIPs
+    // keep their old behavior.
+    if usize_hint > 0 {
+        let mut out = vec![0u8; usize_hint];
+        let mut dec = libdeflater::Decompressor::new();
+        if let Ok(n) = dec.deflate_decompress(data, &mut out) {
+            if n <= usize_hint {
+                out.truncate(n);
+                return Ok(out);
+            }
+        }
+    }
     let mut out = Vec::new();
     if usize_hint > 0 {
         out.reserve_exact(usize_hint);
@@ -4951,6 +4965,34 @@ mod tests {
         assert_eq!(entries[0].name, "classes.dex");
         assert_eq!(entries[1].name, "AndroidManifest.xml");
         assert!(entries.iter().all(|e| e.range.end <= z.len()));
+    }
+}
+
+#[cfg(test)]
+mod inflate_tests {
+    use super::inflate_hint;
+    use std::io::Write;
+
+    #[test]
+    fn libdeflater_path_matches_streaming() {
+        for len in [0usize, 1, 64, 1024, 100_000, 1_048_576] {
+            let mut data = vec![0u8; len];
+            for (i, b) in data.iter_mut().enumerate() {
+                *b = (i.wrapping_mul(31).wrapping_add(7)) as u8;
+            }
+            let mut enc =
+                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+            enc.write_all(&data).unwrap();
+            let compressed = enc.finish().unwrap();
+
+            assert_eq!(inflate_hint(&compressed, data.len()).unwrap(), data);
+            assert_eq!(inflate_hint(&compressed, 0).unwrap(), data);
+            if len > 0 {
+                // A short hint must fall back to the streaming decoder.
+                assert_eq!(inflate_hint(&compressed, len - 1).unwrap(), data);
+            }
+        }
+        assert!(inflate_hint(b"not a deflate stream", 16).is_err());
     }
 }
 

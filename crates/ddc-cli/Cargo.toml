@@ -35,6 +35,7 @@ ddc-dex = { workspace = true }
 ddc-dec = { workspace = true }
 anyhow = { workspace = true }
 flate2 = { version = "1", default-features = false, features = ["zlib-ng"] }
+libdeflater = "1"
 memchr = "2"
 memmap2 = "0.9"
 mimalloc = "0.1.52"
