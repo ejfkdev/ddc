@@ -4963,7 +4963,13 @@ mod md5_tests {
             (63, "b06521f39153d618550606be297466d5"),
             (64, "014842d480b571495a4a0363793f7367"),
             (65, "c743a45e0d2e6a95cb859adae0248435"),
+            (1_048_576, "7202826a7791073fe2787f0c94603278"),
+            (1_048_577, "6f0555ac53cecbf068d354c08863805a"),
             (1_048_579, "ff2c8815ad9e7686a3ae921be4fafaa9"),
+            (1_048_639, "4784646c3349b2459bbb7b2bcb9fa3eb"),
+            (1_048_640, "90651d3a9da06eaf0f8d36780ea6a623"),
+            (2_097_152, "de89461b64701958984c95d1bfb0065a"),
+            (2_097_216, "2fa4f10972cee9c83a7d77c37186892f"),
         ];
         for (index, (len, expected)) in vectors.into_iter().enumerate() {
             let path = std::env::temp_dir().join(format!(
