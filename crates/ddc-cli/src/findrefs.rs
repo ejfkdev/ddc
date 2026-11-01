@@ -883,6 +883,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn count_scan_matches_hit_scan() {
+        let dex = include_bytes!("../../ddc-dec/tests/fixtures/hello.dex");
+        let queries = vec![
+            FindQuery::String("world".to_string()),
+            FindQuery::Method {
+                class: Some("Greeter".to_string()),
+                name: "greet".to_string(),
+                fuzzy_class: false,
+            },
+            FindQuery::Type("Greeter".to_string()),
+        ];
+        for q in queries {
+            let hits = scan_image("hello", dex, &q, None).expect("scan");
+            let counts = scan_image_counts("hello", dex, &q, None).expect("counts");
+            assert!(!counts.is_empty(), "{q:?}");
+            let mut want: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
+            for h in hits {
+                *want.entry(h.class.replace('/', ".")).or_default() += 1;
+            }
+            assert_eq!(want, counts, "{q:?}");
+        }
+    }
+
+    #[test]
     fn byte_needles_cover_supplementary_forms() {
         // BMP-only queries have a single encoding (UTF-8 and MUTF-8 agree).
         assert_eq!(byte_needles("abc"), vec![b"abc".to_vec()]);
