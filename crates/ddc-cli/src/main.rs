@@ -2921,34 +2921,37 @@ fn findrefs_scan(
     let images = filter_images_by_dex(collect_images(&files)?, dex_filters)?;
     #[allow(unused_variables)]
     let t_cd = t_wall.elapsed();
-    // PIPELINED scan: a producer parses images in small waves and feeds a
-    // channel; scanner threads consume and DROP each dex — the inflate of
-    // wave N+1 overlaps the scan of wave N, so the parallel decode
-    // bandwidth survives while resident memory stays bounded to the
-    // in-flight images (holding every image resident cost ~1.2GB on a
-    // 353MB APK; ASC's per-worker streaming runs ~170MB).
+    // PIPELINED scan: a fixed pool of inflater threads feeds a bounded
+    // channel; scanner threads consume and DROP each dex — decode of later
+    // images overlaps scanning of earlier ones, while resident memory stays
+    // bounded to the images in flight (holding every image resident cost
+    // ~1.2GB on a 353MB APK).
     const SCANNERS: usize = 8;
-    const IN_FLIGHT: usize = 12;
+    const INFLATERS: usize = 12;
+    const IN_FLIGHT: usize = 4;
     type Payload = (
         String,
         Vec<u8>,
         Option<(u8, std::collections::BTreeSet<u32>)>,
     );
-    // One inflate/parse thread PER IMAGE (full decode parallelism); the
-    // bounded channel backpressures the producers, so resident memory is
-    // capped at IN_FLIGHT inflated images regardless of the dex count —
-    // the old fixed-width waves serialized the inflate bursts.
+    // Producers are a fixed pool, not one thread per image: one thread per
+    // image made every dex resident at once (the output channel only
+    // backpressures after inflation), which carried ~900MB on 41-dex
+    // archives even when the query matched a handful of methods.
     let chan = std::sync::Arc::new(Chan::<Payload>::new(IN_FLIGHT));
     let producer = {
         let chan = chan.clone();
         let query = query.clone();
         std::thread::spawn(move || -> Result<()> {
-            let handles: Vec<std::thread::JoinHandle<std::result::Result<(), String>>> = images
-                .into_iter()
-                .map(|img| {
-                    let chan = chan.clone();
-                    let query = query.clone();
-                    std::thread::spawn(move || -> std::result::Result<(), String> {
+            let queue = std::sync::Arc::new(Chan::<inputs::Image>::new(images.len().max(1)));
+            let mut handles: Vec<std::thread::JoinHandle<std::result::Result<(), String>>> =
+                Vec::with_capacity(INFLATERS);
+            for _ in 0..INFLATERS {
+                let queue = queue.clone();
+                let chan = chan.clone();
+                let query = query.clone();
+                handles.push(std::thread::spawn(move || -> std::result::Result<(), String> {
+                    while let Some(img) = queue.pop() {
                         // Inflate only: the scan path works on the raw
                         // image (zero table materialization). Deflated
                         // entries stream through a PREFIX decider:
@@ -2964,13 +2967,17 @@ fn findrefs_scan(
                         };
                         if raw.is_empty() {
                             // Prefix resolution found no targets here.
-                            return Ok(());
+                            continue;
                         }
                         chan.push((img.label, raw, pre));
-                        Ok(())
-                    })
-                })
-                .collect();
+                    }
+                    Ok(())
+                }));
+            }
+            for img in images {
+                queue.push(img);
+            }
+            queue.close();
             let mut first_err: Option<String> = None;
             for h in handles {
                 match h.join() {
