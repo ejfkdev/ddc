@@ -7,6 +7,7 @@
 //! class pool. OUTPUT (or -o) is a directory, a single .java file (single
 //! class only), or `-` for stdout; default: `<input-stem>-out/` sibling.
 
+use std::fmt::Write as _;
 use std::io::Read;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -3519,18 +3520,18 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
     // 平铺视图：行 = 命中方法（与原行为一致），窗口作用在行上。
     let total = total_override.unwrap_or(hits.len());
     let rp = crate::api::window_rows_total(hits, offset, limit, total);
-    let rows: Vec<crate::api::RefRow> = rp
-        .rows
-        .iter()
-        .map(|h| crate::api::RefRow {
-            dex: h.dex.clone(),
-            kind: h.insn.to_string(),
-            class: h.class.replace('/', "."),
-            method: h.method.clone(),
-            targets: h.targets.clone(),
-        })
-        .collect();
     if out.is_none() && rf != ResolvedFormat::Text {
+        let rows: Vec<crate::api::RefRow> = rp
+            .rows
+            .iter()
+            .map(|h| crate::api::RefRow {
+                dex: h.dex.clone(),
+                kind: h.insn.to_string(),
+                class: h.class.replace('/', "."),
+                method: h.method.clone(),
+                targets: h.targets.clone(),
+            })
+            .collect();
         match rf {
             ResolvedFormat::Jsonl => print_report(rf, &rows)?,
             ResolvedFormat::Json => {
@@ -3555,40 +3556,35 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
     }
 
     // 列格式：首行表头，之后每个方法一行（多命中方法合并 refs 列）。
-    let lines: Vec<String> = rows
-        .iter()
-        .map(|h| {
-            format!(
-                "{:10}  {:<12}  {} {}  {}",
-                h.dex,
-                h.kind,
-                // 文本列沿用旧版的斜杠内部名（--full 与旧输出逐字节一致）。
-                h.class.replace('.', "/"),
-                h.method,
-                h.targets.join("; ")
-            )
-        })
-        .collect();
+    // Stream straight from the scanned hits: materializing RefRow clones
+    // (including every target Vec) plus one line String per hit doubled the
+    // memory of a broad --full query.
     let header = format!(
         "{:10}  {:<12}  {}",
         bi!("dex", "镜像"),
         bi!("kind", "类型"),
         bi!("class method refs", "类 方法 引用")
     );
-    let mut all = vec![header];
-    all.extend(lines);
-    match out {
+    let count = rp.rows.len();
+    match &out {
         Some(f) => {
-            write_lines(&Some(f), &all, t0, format!(
-                "findrefs {} → {} method(s)",
+            if let Some(parent) = f.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let mut w = std::io::BufWriter::new(std::fs::File::create(f)?);
+            write_ref_hit_text(&mut w, &header, &rp.rows)?;
+            eprintln!(
+                "ddc: findrefs {} → {} method(s) in {} to {}",
                 query.kind(),
-                all.len() - 1
-            ))?;
+                count,
+                fmt_secs(t0.elapsed()),
+                f.display()
+            );
         }
         None => {
-            for l in &all {
-                println!("{l}");
-            }
+            let stdout = std::io::stdout();
+            let mut w = std::io::BufWriter::new(stdout.lock());
+            write_ref_hit_text(&mut w, &header, &rp.rows)?;
         }
     }
     if limit != 0 || offset != 0 {
@@ -3608,6 +3604,30 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Columnar findrefs text: header + one row per hit, written directly.
+fn write_ref_hit_text(
+    w: &mut impl std::io::Write,
+    header: &str,
+    rows: &[findrefs::Hit],
+) -> std::io::Result<()> {
+    writeln!(w, "{header}")?;
+    let mut row = String::with_capacity(256);
+    for h in rows {
+        row.clear();
+        // Hit.class is already the slashed internal name.
+        let _ = write!(&mut row, "{:10}  {:<12}  {} {}  ", h.dex, h.insn, h.class, h.method);
+        for (i, t) in h.targets.iter().enumerate() {
+            if i > 0 {
+                row.push_str("; ");
+            }
+            row.push_str(t);
+        }
+        row.push('\n');
+        w.write_all(row.as_bytes())?;
+    }
+    w.flush()
 }
 
 /// 行输出到 `-o` 文件（带目录创建与一行摘要到 stderr），否则逐行 stdout。
