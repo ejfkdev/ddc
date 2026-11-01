@@ -549,9 +549,58 @@ pub fn scan_image(
             &targets,
             &prefilter,
             &mut hits,
+            false,
+            &mut 0,
         );
     }
     Ok(hits)
+}
+
+/// Summary-only sibling of [`scan_image`]: counts matched methods per owner
+/// class without rendering method names or target descriptors. A broad query
+/// (845k hits on qq) otherwise allocates a full Hit for every match.
+pub fn scan_image_counts(
+    _label: &str,
+    image: &[u8],
+    query: &FindQuery,
+    pre: Option<(u8, BTreeSet<u32>)>,
+) -> Result<std::collections::BTreeMap<String, usize>> {
+    let dex = RawDex::parse(image)?;
+    let (kind_bit, targets): (u8, BTreeSet<u32>) =
+        pre.unwrap_or_else(|| resolve_targets(&dex, query));
+    let mut out: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    if targets.is_empty() {
+        return Ok(out);
+    }
+    let prefilter = Prefilter::new(&targets);
+    let mut no_hits = Vec::new();
+    for ci in 0..dex.cls_n {
+        let cd = dex.cls_off + 32 * ci;
+        let class_type_idx = dex.u4(cd);
+        let class = dex.class_name(class_type_idx);
+        let class_data_off = dex.u4(cd + 24) as usize;
+        if class_data_off == 0 {
+            continue;
+        }
+        let mut count = 0usize;
+        scan_class(
+            &dex,
+            "",
+            class_data_off,
+            &class,
+            kind_bit,
+            &targets,
+            &prefilter,
+            &mut no_hits,
+            true,
+            &mut count,
+        );
+        if count > 0 {
+            *out.entry(class.replace('/', ".")).or_default() += count;
+        }
+    }
+    Ok(out)
 }
 
 /// Target resolution + the opcode-kind bit, split out so the producer's
@@ -636,6 +685,8 @@ fn scan_class(
     targets: &BTreeSet<u32>,
     prefilter: &Option<Prefilter>,
     hits: &mut Vec<Hit>,
+    count_only: bool,
+    count_out: &mut usize,
 ) {
     let mut cur = class_data_off;
     let d = dex.d;
@@ -694,6 +745,7 @@ fn scan_class(
             let mut owner: Option<String> = None;
             let mut matched: Vec<String> = Vec::new();
             let mut first_insn: Option<&'static str> = None;
+            let mut count_hit = false;
             scan_instructions(code, &mut |op, pc, bytes| {
                 if OPCODE_KINDS[op as usize] & kind_bit == 0 {
                     return;
@@ -704,6 +756,10 @@ fn scan_class(
                     unit_at(bytes, pc + 1) as u32
                 };
                 if !targets.contains(&idx) {
+                    return;
+                }
+                if count_only {
+                    count_hit = true;
                     return;
                 }
                 if owner.is_none() {
@@ -728,6 +784,12 @@ fn scan_class(
                     matched.push(target);
                 }
             });
+            if count_only {
+                if count_hit {
+                    *count_out += 1;
+                }
+                continue;
+            }
             if owner.is_some() {
                 hits.push(Hit {
                     dex: dex_name.to_string(),

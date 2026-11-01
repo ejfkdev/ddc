@@ -3062,9 +3062,11 @@ fn findrefs_scan_impl(
                         let mut map: std::collections::BTreeMap<String, usize> =
                             std::collections::BTreeMap::new();
                         while let Some((label, image, pre)) = chan.pop() {
-                            if let Ok(one) = findrefs::scan_image(&label, &image, &query, pre) {
-                                for h in one {
-                                    *map.entry(h.class.replace('/', ".")).or_default() += 1;
+                            if let Ok(one) =
+                                findrefs::scan_image_counts(&label, &image, &query, pre)
+                            {
+                                for (k, v) in one {
+                                    *map.entry(k).or_default() += v;
                                 }
                             }
                         }
