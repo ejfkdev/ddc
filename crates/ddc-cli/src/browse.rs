@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use crate::findrefs::{decode_mutf8_lossy, RawDex};
 use crate::inputs::{
-    collect_images, expand_inputs, filter_images_by_dex, inflate_images, inflate_prefix_images,
-    parse_images, PrefixNeed,
+    class_names_prefix_needed, collect_images, expand_inputs, filter_images_by_dex, inflate_images,
+    inflate_prefix_images, parse_images, PrefixNeed,
 };
 use crate::lang::{bi, bif};
 
@@ -1510,7 +1510,11 @@ pub(crate) fn cmd_pkg(args: &[String]) -> Result<()> {
         } else {
             format!("{}/", pkg.replace('.', "/"))
         };
-        for_each_image(&common.input, &common.dex_filters, &mut |_label, image| {
+        for_each_prefix_image(
+            &common.input,
+            &common.dex_filters,
+            class_names_prefix_needed,
+            &mut |_label, image| {
             let Ok(dex) = RawDex::parse(image) else {
                 return;
             };
