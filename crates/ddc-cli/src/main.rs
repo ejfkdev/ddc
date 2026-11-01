@@ -1775,29 +1775,45 @@ fn md5_block(state: &mut [u32; 4], block: &[u8; 64]) {
         0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb,
         0xeb86d391,
     ];
-    const S: [u32; 64] = [
-        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14,
-        20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11,
-        16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
-    ];
+    const S1: [u32; 4] = [7, 12, 17, 22];
+    const S2: [u32; 4] = [5, 9, 14, 20];
+    const S3: [u32; 4] = [4, 11, 16, 23];
+    const S4: [u32; 4] = [6, 10, 15, 21];
     let mut m = [0u32; 16];
     for (i, w) in m.iter_mut().enumerate() {
         *w = u32::from_le_bytes(block[i * 4..i * 4 + 4].try_into().unwrap());
     }
     let (mut a, mut b, mut c, mut d) = (state[0], state[1], state[2], state[3]);
-    for i in 0..64 {
-        let (f, g) = match i / 16 {
-            0 => ((b & c) | (!b & d), i),
-            1 => ((d & b) | (!d & c), (5 * i + 1) % 16),
-            2 => (b ^ c ^ d, (3 * i + 5) % 16),
-            _ => (c ^ (b | !d), (7 * i) % 16),
-        };
-        let tmp = d;
-        d = c;
-        c = b;
-        let sum = a.wrapping_add(f).wrapping_add(K[i]).wrapping_add(m[g]);
-        b = b.wrapping_add(sum.rotate_left(S[i]));
-        a = tmp;
+    // The four standard MD5 rounds, one loop per round: no per-step branch
+    // or modulo in the hot path (the old 64-iteration match was ~3x slower
+    // than CommonCrypto on a 374MB APK).
+    macro_rules! step {
+        ($f:expr, $g:expr, $k:expr, $s:expr) => {{
+            let f = $f;
+            let g = $g;
+            let tmp = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(
+                a.wrapping_add(f)
+                    .wrapping_add($k)
+                    .wrapping_add(m[g])
+                    .rotate_left($s),
+            );
+            a = tmp;
+        }};
+    }
+    for i in 0..16 {
+        step!((b & c) | (!b & d), i, K[i], S1[i & 3]);
+    }
+    for i in 0..16 {
+        step!((d & b) | (!d & c), (5 * i + 1) & 15, K[16 + i], S2[i & 3]);
+    }
+    for i in 0..16 {
+        step!(b ^ c ^ d, (3 * i + 5) & 15, K[32 + i], S3[i & 3]);
+    }
+    for i in 0..16 {
+        step!(c ^ (b | !d), (7 * i) & 15, K[48 + i], S4[i & 3]);
     }
     state[0] = state[0].wrapping_add(a);
     state[1] = state[1].wrapping_add(b);
