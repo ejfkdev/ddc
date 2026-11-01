@@ -741,11 +741,28 @@ pub fn string_owner_counts(
 ) -> Result<Vec<(String, usize)>> {
     let mut by_class: std::collections::BTreeMap<String, usize> =
         std::collections::BTreeMap::new();
+    let needles = filter.map(crate::findrefs::byte_needles);
     for_each_image(&input.to_path_buf(), dex_filters, &mut |_label, image| {
         let Ok(dex) = RawDex::parse(image) else {
             return;
         };
-        let needles = filter.map(crate::findrefs::byte_needles);
+        // A filtered summary only cares about images whose string table has a
+        // match; checking it is far cheaper than decoding all code in a dex
+        // that cannot contribute. The common case stops at the first match.
+        if let Some(f) = &needles {
+            let mut any = false;
+            for idx in 0..dex.str_n as u32 {
+                if let Some(sb) = dex.string_bytes(idx) {
+                    if crate::findrefs::bytes_contain(sb, f) {
+                        any = true;
+                        break;
+                    }
+                }
+            }
+            if !any {
+                return;
+            }
+        }
         for ci in 0..dex.cls_n {
             let Some((ty, _, _, cdo, _)) = dex.class_def_parts(ci) else {
                 continue;

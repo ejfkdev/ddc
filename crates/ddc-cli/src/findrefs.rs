@@ -577,8 +577,6 @@ pub fn scan_image_counts(
     let mut no_hits = Vec::new();
     for ci in 0..dex.cls_n {
         let cd = dex.cls_off + 32 * ci;
-        let class_type_idx = dex.u4(cd);
-        let class = dex.class_name(class_type_idx);
         let class_data_off = dex.u4(cd + 24) as usize;
         if class_data_off == 0 {
             continue;
@@ -588,7 +586,7 @@ pub fn scan_image_counts(
             &dex,
             "",
             class_data_off,
-            &class,
+            "",
             kind_bit,
             &targets,
             &prefilter,
@@ -597,7 +595,9 @@ pub fn scan_image_counts(
             &mut count,
         );
         if count > 0 {
-            *out.entry(class.replace('/', ".")).or_default() += count;
+            // Name resolution only for classes that actually matched.
+            let class = dex.class_name(dex.u4(cd)).replace('/', ".");
+            *out.entry(class).or_default() += count;
         }
     }
     Ok(out)
