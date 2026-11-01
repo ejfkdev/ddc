@@ -482,6 +482,65 @@ fn callers_finds_invokers() {
 }
 
 #[test]
+fn callers_pages_are_deterministic_with_duplicate_dex() {
+    let dex = std::fs::read(fixture()).expect("hello.dex");
+    let dir = tmp("dup-dex");
+    std::fs::create_dir_all(&dir).unwrap();
+    let apk = dir.join("dup.apk");
+    std::fs::write(
+        &apk,
+        stored_zip(&[
+            ("classes.dex", dex.clone()),
+            ("classes2.dex", dex.clone()),
+            ("classes3.dex", dex),
+        ]),
+    )
+    .unwrap();
+
+    let full = run(ddc().arg("callers").arg(&apk).arg("greet").arg("--full"));
+    assert!(full.status.success(), "{}", stderr(&full));
+    let rows: Vec<String> = stdout(&full)
+        .lines()
+        .skip(1)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(rows.len(), 3, "{}", stdout(&full));
+
+    for (off, want) in rows.iter().enumerate() {
+        let page = run(ddc()
+            .arg("callers")
+            .arg(&apk)
+            .arg("greet")
+            .arg("--full")
+            .arg("--limit")
+            .arg("1")
+            .arg("--offset")
+            .arg(off.to_string()));
+        assert!(page.status.success(), "{}", stderr(&page));
+        let got = stdout(&page).lines().nth(1).unwrap_or("").to_string();
+        assert_eq!(&got, want, "offset {off} page differs");
+    }
+
+    // Repeated windows must agree even when scanner thread order varies.
+    let a = run(ddc()
+        .arg("callers")
+        .arg(&apk)
+        .arg("greet")
+        .arg("--full")
+        .arg("--limit")
+        .arg("2"));
+    let b = run(ddc()
+        .arg("callers")
+        .arg(&apk)
+        .arg("greet")
+        .arg("--full")
+        .arg("--limit")
+        .arg("2"));
+    assert!(a.status.success() && b.status.success());
+    assert_eq!(stdout(&a), stdout(&b));
+}
+
+#[test]
 fn getmethod_writes_output_file() {
     let f = std::env::temp_dir().join(format!("ddc-getmethod-{}.java", std::process::id()));
     let o = run(ddc()
