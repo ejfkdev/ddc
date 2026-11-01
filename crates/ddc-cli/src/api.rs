@@ -593,6 +593,17 @@ pub struct RowPage<T> {
 
 pub fn window_rows<T>(rows: Vec<T>, offset: usize, limit: usize) -> RowPage<T> {
     let total = rows.len();
+    window_rows_total(rows, offset, limit, total)
+}
+
+/// Same window, but with a total that may exceed `rows.len()` because the
+/// caller kept only the paged prefix of the sorted result.
+pub fn window_rows_total<T>(
+    rows: Vec<T>,
+    offset: usize,
+    limit: usize,
+    total: usize,
+) -> RowPage<T> {
     let rows: Vec<T> = if limit == 0 {
         rows.into_iter().skip(offset).collect()
     } else {

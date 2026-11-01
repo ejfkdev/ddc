@@ -2907,11 +2907,54 @@ fn prefix_or_full(
 
 // ---- findrefs ---------------------------------------------------------------
 
-/// What the pipelined scan keeps per hit: full rows for `--full`, or one
-/// owner-class count for the default prefix summary.
+/// What the pipelined scan keeps per hit: full rows for `--full`, one
+/// owner-class count for the default prefix summary, or only the first
+/// `want` rows for a paged full query.
 enum RefScanOut {
     Hits(Vec<findrefs::Hit>),
     Counts(std::collections::BTreeMap<String, usize>),
+    Top { hits: Vec<findrefs::Hit>, total: usize },
+}
+
+#[derive(Clone, Copy)]
+enum RefScanMode {
+    Hits,
+    Counts,
+    Top(usize),
+}
+
+/// A hit plus its scan-order tiebreaker. Larger = later in the output order,
+/// so a max-heap can discard the worst row once it holds `want` entries.
+struct RankedHit {
+    hit: findrefs::Hit,
+    seq: usize,
+}
+
+impl PartialEq for RankedHit {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+impl Eq for RankedHit {}
+impl PartialOrd for RankedHit {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+/// Row order for full findrefs output. Class/method are the documented key;
+/// equal keys (the same class defined in several dexes) tie-break on the dex
+/// label so paging is stable instead of depending on scanner thread order.
+fn cmp_hit_order(a: &findrefs::Hit, b: &findrefs::Hit) -> std::cmp::Ordering {
+    a.class
+        .cmp(&b.class)
+        .then_with(|| a.method.cmp(&b.method))
+        .then_with(|| a.dex.cmp(&b.dex))
+}
+
+impl Ord for RankedHit {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        cmp_hit_order(&self.hit, &other.hit).then_with(|| self.seq.cmp(&other.seq))
+    }
 }
 
 /// The pipelined findrefs scan (producer pool + bounded scanners), shared by
@@ -2920,7 +2963,7 @@ fn findrefs_scan_impl(
     input: &Path,
     query: &findrefs::FindQuery,
     dex_filters: &[String],
-    counts_only: bool,
+    mode: RefScanMode,
 ) -> Result<(RefScanOut, std::time::Duration)> {
     let files = expand_inputs(&[input.to_path_buf()])?;
     let t_wall = std::time::Instant::now();
@@ -3006,31 +3049,61 @@ fn findrefs_scan_impl(
     let mut hits = Vec::new();
     let mut counts: std::collections::BTreeMap<String, usize> =
         std::collections::BTreeMap::new();
+    let mut top: Vec<findrefs::Hit> = Vec::new();
+    let mut top_total = 0usize;
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         for _ in 0..SCANNERS {
             let chan = &chan;
             let query = query.clone();
             handles.push(scope.spawn(move || -> RefScanOut {
-                if counts_only {
-                    let mut map: std::collections::BTreeMap<String, usize> =
-                        std::collections::BTreeMap::new();
-                    while let Some((label, image, pre)) = chan.pop() {
-                        if let Ok(one) = findrefs::scan_image(&label, &image, &query, pre) {
-                            for h in one {
-                                *map.entry(h.class.replace('/', ".")).or_default() += 1;
+                match mode {
+                    RefScanMode::Counts => {
+                        let mut map: std::collections::BTreeMap<String, usize> =
+                            std::collections::BTreeMap::new();
+                        while let Some((label, image, pre)) = chan.pop() {
+                            if let Ok(one) = findrefs::scan_image(&label, &image, &query, pre) {
+                                for h in one {
+                                    *map.entry(h.class.replace('/', ".")).or_default() += 1;
+                                }
                             }
                         }
+                        RefScanOut::Counts(map)
                     }
-                    RefScanOut::Counts(map)
-                } else {
-                    let mut out = Vec::new();
-                    while let Some((label, image, pre)) = chan.pop() {
-                        if let Ok(mut one) = findrefs::scan_image(&label, &image, &query, pre) {
-                            out.append(&mut one);
+                    RefScanMode::Top(want) => {
+                        let mut heap: std::collections::BinaryHeap<RankedHit> =
+                            std::collections::BinaryHeap::with_capacity(want.min(4096));
+                        let mut seq = 0usize;
+                        let mut total = 0usize;
+                        while let Some((label, image, pre)) = chan.pop() {
+                            if let Ok(one) = findrefs::scan_image(&label, &image, &query, pre) {
+                                total += one.len();
+                                for hit in one {
+                                    seq += 1;
+                                    let cand = RankedHit { hit, seq };
+                                    if heap.len() < want {
+                                        heap.push(cand);
+                                    } else if heap.peek().is_some_and(|worst| cand < *worst) {
+                                        heap.pop();
+                                        heap.push(cand);
+                                    }
+                                }
+                            }
+                        }
+                        RefScanOut::Top {
+                            hits: heap.into_iter().map(|r| r.hit).collect(),
+                            total,
                         }
                     }
-                    RefScanOut::Hits(out)
+                    RefScanMode::Hits => {
+                        let mut out = Vec::new();
+                        while let Some((label, image, pre)) = chan.pop() {
+                            if let Ok(mut one) = findrefs::scan_image(&label, &image, &query, pre) {
+                                out.append(&mut one);
+                            }
+                        }
+                        RefScanOut::Hits(out)
+                    }
                 }
             }));
         }
@@ -3042,6 +3115,10 @@ fn findrefs_scan_impl(
                         *counts.entry(k).or_default() += v;
                     }
                 }
+                Ok(RefScanOut::Top { hits: v, total }) => {
+                    top.extend(v);
+                    top_total = top_total.saturating_add(total);
+                }
                 Err(_) => {}
             }
         }
@@ -3050,16 +3127,26 @@ fn findrefs_scan_impl(
         .join()
         .map_err(|_| anyhow::anyhow!("parse producer panicked"))??;
     let t_scan = t_wall.elapsed();
-    let out = if counts_only {
-        RefScanOut::Counts(counts)
-    } else {
-        hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
-        RefScanOut::Hits(hits)
+    let out = match mode {
+        RefScanMode::Counts => RefScanOut::Counts(counts),
+        RefScanMode::Top(want) => {
+            top.sort_by(cmp_hit_order);
+            top.truncate(want);
+            RefScanOut::Top {
+                hits: top,
+                total: top_total,
+            }
+        }
+        RefScanMode::Hits => {
+            hits.sort_by(cmp_hit_order);
+            RefScanOut::Hits(hits)
+        }
     };
     if std::env::var("DDC_WALL").is_ok() {
         let hit_count = match &out {
             RefScanOut::Hits(h) => h.len(),
             RefScanOut::Counts(m) => m.values().sum(),
+            RefScanOut::Top { total, .. } => *total,
         };
         eprintln!(
             "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
@@ -3076,9 +3163,9 @@ fn findrefs_scan(
     query: &findrefs::FindQuery,
     dex_filters: &[String],
 ) -> Result<(Vec<findrefs::Hit>, std::time::Duration)> {
-    match findrefs_scan_impl(input, query, dex_filters, false)? {
+    match findrefs_scan_impl(input, query, dex_filters, RefScanMode::Hits)? {
         (RefScanOut::Hits(hits), t) => Ok((hits, t)),
-        (RefScanOut::Counts(_), _) => unreachable!("hit mode returned counts"),
+        _ => unreachable!("hit mode returned another shape"),
     }
 }
 
@@ -3090,9 +3177,24 @@ fn findrefs_scan_counts(
     query: &findrefs::FindQuery,
     dex_filters: &[String],
 ) -> Result<(std::collections::BTreeMap<String, usize>, std::time::Duration)> {
-    match findrefs_scan_impl(input, query, dex_filters, true)? {
+    match findrefs_scan_impl(input, query, dex_filters, RefScanMode::Counts)? {
         (RefScanOut::Counts(counts), t) => Ok((counts, t)),
-        (RefScanOut::Hits(_), _) => unreachable!("count mode returned hits"),
+        _ => unreachable!("count mode returned another shape"),
+    }
+}
+
+/// Paged full scan: keep only the first `want` sorted hits, while still
+/// counting every hit. `--full --limit` used to build all rows (845k on a
+/// broad qq query) just to print one page.
+fn findrefs_scan_top(
+    input: &Path,
+    query: &findrefs::FindQuery,
+    dex_filters: &[String],
+    want: usize,
+) -> Result<(Vec<findrefs::Hit>, usize, std::time::Duration)> {
+    match findrefs_scan_impl(input, query, dex_filters, RefScanMode::Top(want.max(1)))? {
+        (RefScanOut::Top { hits, total }, t) => Ok((hits, total, t)),
+        _ => unreachable!("top mode returned another shape"),
     }
 }
 
@@ -3359,23 +3461,43 @@ fn cmd_findrefs(args: &[String], t0: std::time::Instant) -> Result<()> {
         return Ok(());
     }
 
-    let (mut hits, t_cd) = findrefs_scan(&input, &query, &dex_filters)?;
+    // Paged full output: keep only the requested sorted prefix; the total
+    // still comes from every hit. A prefix filter needs the full set first.
+    let paged = limit != 0 && prefix.is_none();
+    let (mut hits, total_override, t_cd) = if paged {
+        let (h, total, t) = findrefs_scan_top(
+            &input,
+            &query,
+            &dex_filters,
+            offset.saturating_add(limit),
+        )?;
+        (h, Some(total), t)
+    } else {
+        let (h, t) = findrefs_scan(&input, &query, &dex_filters)?;
+        (h, None, t)
+    };
     let t_scan = t_wall.elapsed();
     if std::env::var("DDC_WALL").is_ok() {
+        let hit_count = total_override.unwrap_or(hits.len());
         eprintln!(
             "[wall] cd+collect={:?} inflate+scan={:?} hits={}",
             t_cd,
             t_scan - t_cd,
-            hits.len()
+            hit_count
         );
     }
-    hits.sort_by(|a, b| a.class.cmp(&b.class).then(a.method.cmp(&b.method)));
-    if let Some(p) = &prefix {
-        hits.retain(|h| crate::api::under_prefix(&h.class.replace('/', "."), p, '.'));
+    if paged {
+        // Already sorted and truncated by the scan.
+    } else {
+        hits.sort_by(cmp_hit_order);
+        if let Some(p) = &prefix {
+            hits.retain(|h| crate::api::under_prefix(&h.class.replace('/', "."), p, '.'));
+        }
     }
 
     // 平铺视图：行 = 命中方法（与原行为一致），窗口作用在行上。
-    let rp = crate::api::window_rows(hits, offset, limit);
+    let total = total_override.unwrap_or(hits.len());
+    let rp = crate::api::window_rows_total(hits, offset, limit, total);
     let rows: Vec<crate::api::RefRow> = rp
         .rows
         .iter()
@@ -4702,6 +4824,23 @@ pub(crate) fn inflate_hint(data: &[u8], usize_hint: usize) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_order_ties_on_dex_label() {
+        // The same class/method can be defined in several dexes; paging must
+        // not depend on which scanner thread saw it first.
+        let mk = |dex: &str| findrefs::Hit {
+            dex: dex.to_string(),
+            class: "A".to_string(),
+            method: "m()V".to_string(),
+            insn: "invoke",
+            targets: Vec::new(),
+        };
+        let mut hits = [mk("z.dex"), mk("a.dex"), mk("m.dex")];
+        hits.sort_by(cmp_hit_order);
+        let order: Vec<&str> = hits.iter().map(|h| h.dex.as_str()).collect();
+        assert_eq!(order, vec!["a.dex", "m.dex", "z.dex"]);
+    }
 
     fn u16b(v: u16) -> [u8; 2] {
         v.to_le_bytes()
