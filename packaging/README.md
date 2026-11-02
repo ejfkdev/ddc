@@ -11,7 +11,7 @@ the AUR, WinGet and npm renderers are already generic.
 
 | Channel | Artifact | Status |
 | --- | --- | --- |
-| GitHub Releases | raw binaries, six target triples | live |
+| GitHub Releases | raw binaries, eight target triples (includes static musl) | live |
 | crates.io | `ddc-cli` | live |
 | cargo-binstall | `[package.metadata.binstall]` in `crates/ddc-cli/Cargo.toml` | live and verified |
 | Homebrew | `ejfkdev/homebrew-tap` (separate repo, auto-updated) | live |
@@ -35,16 +35,16 @@ The registry-independent npm tarball and WinGet local-manifest zip are also
 attached to every release.
 
 **Why no PyPI?** A Python wheel is the wrong container for a native binary:
-supporting six platforms means six platform-tagged wheels, each carrying the
+supporting eight targets means eight platform-tagged wheels, each carrying the
 binary, plus a separate release job. npm already covers the "install a CLI with
 the language toolchain I have" case with a 3 kB wrapper, so PyPI adds cost
 without a new audience.
 
-**Why no Nix yet?** The Linux release assets are UPX-compressed and linked
-against the distribution glibc. NixOS needs a patched interpreter; patching a
-UPX-packed ELF is fragile. The correct Nix package would build from source
-with `rustPlatform.buildRustPackage` and `cargoLock`, which is a separate
-piece of work from this prebuilt-binary catalog.
+**Why no Nix yet?** The glibc Linux assets are UPX-compressed and linked
+against the distribution glibc, so NixOS would need a patched interpreter.
+The static musl assets run directly, but a proper Nix package still belongs
+in nixpkgs built from source with `rustPlatform.buildRustPackage` and
+`cargoLock`; that is separate from this prebuilt-binary catalog.
 
 ## Direct-install assets
 
@@ -94,7 +94,7 @@ packaging/
   Use `version = "x.y.z"` instead for a binary outside this workspace.
 - `asset` describes the release asset name. `{version}` is the tag without
   `v`, `{target}` is the Rust target triple, and `{exe}` is `.exe` on Windows.
-- `targets` lists the six release triples (or fewer for a future program).
+- `targets` lists the eight release triples (or fewer for a future program).
 - `[program.aur]`, `[program.winget]` and `[program.npm]` select the channels.
   A program without a channel table simply does not render that channel.
 

@@ -13,28 +13,36 @@ const NAME = "ddc";
 const ENV_PREFIX = "DDC";
 const ASSETS = {
   "darwin-arm64": {
-    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-aarch64-apple-darwin",
-    sha256: "08849a2f6af080635dc774c36231ac4da0cbf5f1387b97c02edb739f858b2ebe",
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-aarch64-apple-darwin",
+    sha256: "d9292e2a4eb89248bbdfedce56363a07ec72c7590238c001449f957eb2768e6d",
   },
   "darwin-x64": {
-    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-x86_64-apple-darwin",
-    sha256: "78eed6985c23cba120b512665014d5b37ebaca0aebc7914b1f38636575b49840",
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-x86_64-apple-darwin",
+    sha256: "753dd7fec32c7fd2e02133a0d1fbdb4fb971b7855741ee0ff19c37e3adba87bc",
   },
   "linux-arm64": {
-    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-aarch64-unknown-linux-gnu",
-    sha256: "efdb6ec93e1ebd17715a74ae8593e4fc6b7b7945354eeb60686ad2fd5f8551ce",
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-aarch64-unknown-linux-gnu",
+    sha256: "dbb734cf98c4b22ea166a71adc892718dba263628a346718178f483ad5d4f38d",
+  },
+  "linux-arm64-musl": {
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-aarch64-unknown-linux-musl",
+    sha256: "15cea25b77b4aba1ed128db41892e52de4cc7bea310216b6460c77f0aab32904",
   },
   "linux-x64": {
-    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-x86_64-unknown-linux-gnu",
-    sha256: "77f54753c2daabeccb3efafa43136de15907e2d6ed8a78f66d4848228b03f096",
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-x86_64-unknown-linux-gnu",
+    sha256: "81b912dcf355b3fb7c44fee8bf0510710a5dc0ce982f7abf28917bdfdf6a0f37",
+  },
+  "linux-x64-musl": {
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-x86_64-unknown-linux-musl",
+    sha256: "ec8f852bace04637def5499040bc7812a7259ba2764b73bd297f65da820ae6ee",
   },
   "win32-arm64": {
-    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-aarch64-pc-windows-msvc.exe",
-    sha256: "92832e8e8339168efc5716ac50564e52648b6122e71bf93cb5ce2da176ac6d1c",
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-aarch64-pc-windows-msvc.exe",
+    sha256: "efd2ecab26c4accd804e9d4c979f830a5b9396bec60b670263133a9a419cda3c",
   },
   "win32-x64": {
-    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-x86_64-pc-windows-msvc.exe",
-    sha256: "395355d64e0ba1268b77d9ba17092e9cc55f8154cfc9a9f3671b7514fd5cac77",
+    url: "https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-x86_64-pc-windows-msvc.exe",
+    sha256: "e82152907581158fded6583ed12b47029bf415030fe7b1eb96e687effd3a0e64",
   },
 };
 

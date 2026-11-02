@@ -10,7 +10,7 @@ Scoop bucket 一样：一份 catalog 列出程序，一个生成器渲染各渠�
 
 | 渠道 | 产物 | 状态 |
 | --- | --- | --- |
-| GitHub Releases | 六个 target triple 的裸二进制 | 已上线 |
+| GitHub Releases | 八个 target triple 的裸二进制（含静态 musl） | 已上线 |
 | crates.io | `ddc-cli` | 已上线 |
 | cargo-binstall | `crates/ddc-cli/Cargo.toml` 里的 `[package.metadata.binstall]` | 已上线并实测 |
 | Homebrew | `ejfkdev/homebrew-tap`（独立仓库，自动更新） | 已上线 |
@@ -30,15 +30,15 @@ Scoop bucket 一样：一份 catalog 列出程序，一个生成器渲染各渠�
 `ddc-bin-<version>-1-aur.tar.gz` 仍可直接 `makepkg` 安装。npm tarball 和
 WinGet 本地清单 zip 也附在每次 release 上。
 
-**为什么不做 PyPI？** Python wheel 不适合装原生二进制：支持六个平台就要
-六个带 platform tag 的 wheel，每个都塞一份二进制，还要额外的发布任务。
+**为什么不做 PyPI？** Python wheel 不适合装原生二进制：支持八个 target 就要
+八个带 platform tag 的 wheel，每个都塞一份二进制，还要额外的发布任务。
 npm 的 3 kB wrapper 已经覆盖了“用现有语言工具链装 CLI”的场景，PyPI
 只会增加维护成本，不会带来新用户。
 
-**为什么暂缓 Nix？** Linux release 产物是 UPX 压缩、链接发行版 glibc 的
-二进制。NixOS 需要修改 interp；给 UPX 压缩过的 ELF 打 patch 很脆弱。正确
-做法是用 `rustPlatform.buildRustPackage` + `cargoLock` 从源码构建，那是
-独立于这个“预编译产物 catalog”的一项工作。
+**为什么暂缓 Nix？** glibc 的 Linux 产物是 UPX 压缩、链接发行版 glibc 的
+二进制，NixOS 需要修改 interp；静态 musl 产物可以直接运行，但正式的 Nix
+包仍应在 nixpkgs 里用 `rustPlatform.buildRustPackage` + `cargoLock` 从源码
+构建，那是独立于这个“预编译产物 catalog”的一项工作。
 
 ## 直接安装资产
 

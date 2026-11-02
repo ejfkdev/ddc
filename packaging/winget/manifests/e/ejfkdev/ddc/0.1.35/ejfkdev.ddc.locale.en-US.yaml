@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: ejfkdev.ddc
-PackageVersion: 0.1.34
+PackageVersion: 0.1.35
 PackageLocale: en-US
 Publisher: ejfkdev
 PublisherUrl: "https://github.com/ejfkdev"
@@ -8,7 +8,7 @@ PublisherSupportUrl: "https://github.com/ejfkdev/ddc/issues"
 PackageName: ddc
 PackageUrl: "https://github.com/ejfkdev/ddc"
 License: MIT
-LicenseUrl: "https://github.com/ejfkdev/ddc/blob/v0.1.34/LICENSE"
+LicenseUrl: "https://github.com/ejfkdev/ddc/blob/v0.1.35/LICENSE"
 ShortDescription: DEX to Java decompiler with a CLI, HTTP API and MCP server
 Description: |-
   ddc decompiles Android DEX bytecode to readable Java. One binary exposes a
@@ -23,6 +23,6 @@ Tags:
   - cli
   - mcp
   - rust
-ReleaseNotesUrl: "https://github.com/ejfkdev/ddc/releases/tag/v0.1.34"
+ReleaseNotesUrl: "https://github.com/ejfkdev/ddc/releases/tag/v0.1.35"
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
