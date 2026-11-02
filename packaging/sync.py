@@ -515,13 +515,17 @@ def render_winget(program: dict, version: str, record: dict) -> dict[Path, bytes
     }
 
 
-def node_key(target: str) -> tuple[str, str] | None:
+def node_key(target: str) -> str | None:
+    musl = False
     if target.endswith("-apple-darwin"):
         platform = "darwin"
     elif target.endswith("-pc-windows-msvc"):
         platform = "win32"
     elif target.endswith("-unknown-linux-gnu"):
         platform = "linux"
+    elif target.endswith("-unknown-linux-musl"):
+        platform = "linux"
+        musl = True
     else:
         return None
     if target.startswith("aarch64"):
@@ -530,7 +534,7 @@ def node_key(target: str) -> tuple[str, str] | None:
         arch = "x64"
     else:
         return None
-    return platform, arch
+    return f"{platform}-{arch}" + ("-musl" if musl else "")
 
 
 NPM_INSTALL_JS = r'''#!/usr/bin/env node
@@ -629,7 +633,7 @@ async function downloadWithRetry(url, dest) {
 async function main() {
   const platform = process.platform;
   const arch = process.arch;
-  const key = `${platform}-${arch}`;
+  const key = isMusl() ? `${platform}-${arch}-musl` : `${platform}-${arch}`;
 
   const binDir = path.join(__dirname, "bin");
   const fileName = platform === "win32" ? `${NAME}.exe` : NAME;
@@ -654,12 +658,6 @@ async function main() {
     fail(
       `no prebuilt binary for ${key}; supported: ${Object.keys(ASSETS).join(", ")}. ` +
         `Set ${ENV_PREFIX}_BINARY_PATH to a local ${NAME} binary instead.`
-    );
-  }
-  if (isMusl()) {
-    fail(
-      `this package ships glibc builds and Alpine/musl is not supported. ` +
-        `Install with "__INSTALL_HINT__" or build from source.`
     );
   }
 
@@ -759,11 +757,9 @@ def render_npm(program: dict, version: str, record: dict) -> dict[Path, bytes]:
         key = node_key(target)
         if key is None:
             continue
-        platform, arch = key
-        node_platform = f"{platform}-{arch}"
-        if node_platform in assets:
-            die(f"{name}: two targets map to npm {node_platform}")
-        assets[node_platform] = {
+        if key in assets:
+            die(f"{name}: two targets map to npm {key}")
+        assets[key] = {
             "url": asset_url(program, version, target),
             "sha256": record["targets"][target]["sha256"],
         }
@@ -817,6 +813,17 @@ def render_npm(program: dict, version: str, record: dict) -> dict[Path, bytes]:
     }
     package_json = json.dumps(package, indent=2, ensure_ascii=False) + "\n"
 
+    if any(key.endswith("-musl") for key in assets):
+        linux_note = (
+            "Linux builds include glibc and fully static musl variants; the "
+            "installer selects musl automatically on Alpine."
+        )
+    else:
+        linux_note = (
+            "Linux builds target glibc (built on ubuntu-latest); Alpine/musl "
+            "users should install from source instead."
+        )
+
     readme = f"""# {package_name}
 
 Prebuilt [{command}]({package.get('homepage')}) binaries for macOS, Linux and
@@ -829,9 +836,7 @@ npm install -g {package_name}
 {command} --version
 ```
 
-Supported platforms: {", ".join(sorted(assets))}. Linux builds target glibc
-(built on ubuntu-latest); Alpine/musl users should install from source
-instead.
+Supported platforms: {", ".join(sorted(assets))}. {linux_note}
 
 Set `{env_prefix}_BINARY_PATH` to a local binary to skip the download.
 With `npm install --ignore-scripts`, the launcher fetches the binary on first

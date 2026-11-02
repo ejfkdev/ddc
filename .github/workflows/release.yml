@@ -33,6 +33,16 @@ jobs:
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             upx: true
+          # Fully static Linux builds for Alpine/musl distributions. Each
+          # runner's host arch matches the target, so musl-gcc is native.
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            upx: true
+            musl: true
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            upx: true
+            musl: true
           # Windows x64 + arm64 (arm64 cross on the x64 runner; UPX
           # best-effort — ARM64 PE support depends on the UPX build)
           - os: windows-latest
@@ -95,9 +105,35 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      - name: Install musl toolchain
+        if: matrix.musl
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y musl-tools
+
       # ${{ matrix.target }} expands in YAML, before any shell sees it —
       # no shell-variable semantics to get wrong across pwsh/bash.
+      - name: Build (musl, fully static)
+        if: matrix.musl
+        # musl-gcc feeds both rustc's linker and every cc-rs / cmake C
+        # dependency (zlib-ng, libdeflate, mimalloc). CMAKE_C_COMPILER is
+        # required because libz-ng-sys drives cmake, which ignores CC.
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CMAKE_C_COMPILER: musl-gcc
+          CMAKE_C_FLAGS: -static
+        # NOT --locked: the version-stamp step rewrites
+        # workspace.package.version above, which invalidates Cargo.lock's
+        # crate versions by design; the lock is still committed and used
+        # as the resolution baseline.
+        run: cargo build --release --target ${{ matrix.target }}
+
       - name: Build
+        if: matrix.musl != true
         # NOT --locked: the version-stamp step rewrites
         # workspace.package.version above, which invalidates Cargo.lock's
         # crate versions by design; the lock is still committed and used

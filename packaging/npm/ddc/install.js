@@ -119,7 +119,7 @@ async function downloadWithRetry(url, dest) {
 async function main() {
   const platform = process.platform;
   const arch = process.arch;
-  const key = `${platform}-${arch}`;
+  const key = isMusl() ? `${platform}-${arch}-musl` : `${platform}-${arch}`;
 
   const binDir = path.join(__dirname, "bin");
   const fileName = platform === "win32" ? `${NAME}.exe` : NAME;
@@ -144,12 +144,6 @@ async function main() {
     fail(
       `no prebuilt binary for ${key}; supported: ${Object.keys(ASSETS).join(", ")}. ` +
         `Set ${ENV_PREFIX}_BINARY_PATH to a local ${NAME} binary instead.`
-    );
-  }
-  if (isMusl()) {
-    fail(
-      `this package ships glibc builds and Alpine/musl is not supported. ` +
-        `Install with "cargo install ddc-cli" or build from source.`
     );
   }
 

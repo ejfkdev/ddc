@@ -95,7 +95,8 @@ winget install --id ejfkdev.ddc -e --source winget
 ```
 
 **Any platform** (npm) — `@ejfkdev/ddc` is a small wrapper that downloads and
-SHA-256-verifies the release binary (Node 18+):
+SHA-256-verifies the release binary (Node 18+); Linux glibc and fully static
+musl builds are selected automatically:
 
 ```bash
 npm install -g @ejfkdev/ddc
@@ -142,8 +143,9 @@ Once AUR registration reopens: `yay -S ddc-bin` or `paru -S ddc-bin`.
 
 **Binaries**: every [release](https://github.com/ejfkdev/ddc/releases)
 ships raw binaries (no archives) for `linux-amd64`, `linux-arm64`,
-`windows-amd64`, `windows-arm64`, `macos-amd64` and `macos-arm64` —
-non-macOS builds UPX-compressed.
+`linux-amd64-musl`, `linux-arm64-musl`, `windows-amd64`, `windows-arm64`,
+`macos-amd64` and `macos-arm64` — non-macOS builds UPX-compressed. The musl
+builds are fully static and run on Alpine and other musl distributions.
 
 **From source** (Rust stable):
 

@@ -85,7 +85,8 @@ winget install --id ejfkdev.ddc -e --source winget
 ```
 
 **全平台**（npm）——`@ejfkdev/ddc` 是一个小 wrapper，安装时下载并校验
-SHA-256（需要 Node 18+）：
+SHA-256（需要 Node 18+）；Linux 的 glibc 与完全静态 musl 构建会自动
+选择：
 
 ```bash
 npm install -g @ejfkdev/ddc
@@ -130,8 +131,9 @@ AUR 注册恢复后：`yay -S ddc-bin` 或 `paru -S ddc-bin`。
 
 **二进制**：每个 [release](https://github.com/ejfkdev/ddc/releases) 附带
 裸二进制（无压缩包），覆盖 `linux-amd64`、`linux-arm64`、
-`windows-amd64`、`windows-arm64`、`macos-amd64`、`macos-arm64`——非
-macOS 平台已 UPX 压缩。
+`linux-amd64-musl`、`linux-arm64-musl`、`windows-amd64`、
+`windows-arm64`、`macos-amd64`、`macos-arm64`——非 macOS 平台已 UPX
+压缩。musl 构建为完全静态，可直接运行在 Alpine 等 musl 发行版上。
 
 **源码构建**（Rust stable）：
 

@@ -26,3 +26,36 @@ jobs:
         run: cargo test --release --locked
       - name: Smoke
         run: cargo run --release --locked -- --version
+
+  musl:
+    name: build (x86_64-unknown-linux-musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: x86_64-unknown-linux-musl
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y musl-tools
+      - name: Build (fully static)
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CMAKE_C_COMPILER: musl-gcc
+          CMAKE_C_FLAGS: -static
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Smoke
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/ddc
+          "$bin" --version
+          "$bin" info crates/ddc-dec/tests/fixtures/hello.dex
+          if readelf -d "$bin" | grep -q NEEDED; then
+            echo "::error::musl binary is dynamically linked"
+            readelf -d "$bin"
+            exit 1
+          fi
