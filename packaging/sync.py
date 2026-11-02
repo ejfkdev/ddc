@@ -774,16 +774,10 @@ def render_npm(program: dict, version: str, record: dict) -> dict[Path, bytes]:
         for key, value in sorted(assets.items())
     ) + "}"
 
-    install_hint = (
-        f"cargo install {program['crate']}"
-        if program.get("crate")
-        else f"cargo install --git https://github.com/{program['repo']}"
-    )
     install_js = (
         NPM_INSTALL_JS.replace("__ASSETS__", assets_js)
         .replace("__NAME__", command)
         .replace("__ENV_PREFIX__", env_prefix)
-        .replace("__INSTALL_HINT__", install_hint)
     )
     launcher_js = (
         NPM_LAUNCHER_JS.replace("__NAME__", command)
