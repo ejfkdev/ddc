@@ -152,9 +152,9 @@ LICENSE。渲染是确定性的，`--check` 不需要联网，直接比对字节
 **wingetcreate（Windows）：**
 
 ```powershell
-wingetcreate update ejfkdev.ddc --version 0.1.34 `
-  --urls https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-x86_64-pc-windows-msvc.exe `
-         https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-aarch64-pc-windows-msvc.exe `
+wingetcreate update ejfkdev.ddc --version 0.1.35 `
+  --urls https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-x86_64-pc-windows-msvc.exe `
+         https://github.com/ejfkdev/ddc/releases/download/v0.1.35/ddc-v0.1.35-aarch64-pc-windows-msvc.exe `
   --submit
 ```
 
@@ -209,7 +209,7 @@ NPM_TOKEN=npm_... ./packaging/publish.sh npm --yes
 ```bash
 cd packaging/npm/ddc
 npm pack
-npm install -g --prefix /tmp/ddc-npm ./ejfkdev-ddc-0.1.34.tgz
+npm install -g --prefix /tmp/ddc-npm ./ejfkdev-ddc-0.1.35.tgz
 /tmp/ddc-npm/bin/ddc --version
 ```
 

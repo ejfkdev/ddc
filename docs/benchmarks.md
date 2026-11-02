@@ -7,7 +7,7 @@ measured after a cooldown, release profile with
 `target-cpu=native`. The benchmark harness is kept out of the published tree (local APK paths); the tables
 above are the recorded results.
 
-Recorded 2026-11-02 with v0.1.34: three serial runs per cell (arithmetic mean; peak RSS is the run maximum). Peak RSS is `/usr/bin/time -l`. WhatsApp's full run hits the deadline guard on one pathological class (`X.K2H`) and exits 1 after writing 99,482 files; its timing includes that deadline.
+Recorded 2026-11-02 with v0.1.35: three serial runs per cell (arithmetic mean; peak RSS is the run maximum). Peak RSS is `/usr/bin/time -l`. WhatsApp's full run hits the deadline guard on one pathological class (`X.K2H`) and exits 1 after writing 99,482 files; its timing includes that deadline.
 
 ## Full decompile
 

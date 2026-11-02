@@ -105,7 +105,7 @@ npm install -g @ejfkdev/ddc
 
 ```bash
 # 改成需要的版本
-VERSION=0.1.34
+VERSION=0.1.35
 npm install -g "https://github.com/ejfkdev/ddc/releases/download/v$VERSION/ejfkdev-ddc-$VERSION.tgz"
 ```
 
@@ -121,7 +121,7 @@ cargo binstall ddc-cli
 
 ```bash
 # 改成需要的版本
-VERSION=0.1.34
+VERSION=0.1.35
 curl -LO "https://github.com/ejfkdev/ddc/releases/download/v$VERSION/ddc-bin-$VERSION-1-aur.tar.gz"
 tar xzf "ddc-bin-$VERSION-1-aur.tar.gz"
 cd ddc-bin && makepkg -si
@@ -192,7 +192,7 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 | qq | 374 MB | **47.70s** | 33.51s | 2552 MB |
 
 
-记录于 2026-11-02，v0.1.34：每个单元格 3 次串行运行（算术平均；峰值 RSS 取最大值）。峰值 RSS 来自 `/usr/bin/time -l`。WhatsApp 全量运行有 1 个病态类（`X.K2H`）触发截止期保护并以 1 退出，已写出 99,482 个文件；耗时包含该截止期等待。
+记录于 2026-11-02，v0.1.35：每个单元格 3 次串行运行（算术平均；峰值 RSS 取最大值）。峰值 RSS 来自 `/usr/bin/time -l`。WhatsApp 全量运行有 1 个病态类（`X.K2H`）触发截止期保护并以 1 退出，已写出 99,482 个文件；耗时包含该截止期等待。
 </details>
 
 同一批 APK 上的查询子命令（单元格：耗时 / 峰值 RSS；`strings -f <包名>
