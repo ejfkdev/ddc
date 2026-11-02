@@ -991,10 +991,24 @@ pub fn inflate_prefix_images(
 /// Inflate AND parse each image on its own thread. Returns
 /// `(label, DexFile)` pairs in input order.
 pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
-    let mut handles = Vec::new();
-    for img in images {
+    Ok(parse_images_indexed(images.into_iter().enumerate().collect())?
+        .into_iter()
+        .map(|(_, label, dex)| (label, dex))
+        .collect())
+}
+
+/// Parallel parse that preserves each caller-side index. Unparsable images
+/// are skipped (see `parse_images`), so a sparse result MUST be keyed by the
+/// original index — zipping it positionally against the request would shift
+/// every later image onto the wrong slot.
+pub fn parse_images_indexed(
+    images: Vec<(usize, Image)>,
+) -> Result<Vec<(usize, String, DexFile)>> {
+    let mut handles = Vec::with_capacity(images.len());
+    for (idx, img) in images {
         let label = img.label.clone();
         handles.push((
+            idx,
             label,
             std::thread::spawn(move || {
                 let raw = match img.method {
@@ -1007,13 +1021,13 @@ pub fn parse_images(images: Vec<Image>) -> Result<Vec<(String, DexFile)>> {
                 };
                 DexFile::parse(raw)
                     .map_err(|e| e.to_string())
-                    .map(|dex| (img.label, dex))
+                    .map(|dex| (idx, img.label, dex))
             }),
         ));
     }
     let mut out = Vec::with_capacity(handles.len());
     let mut skipped: Vec<String> = Vec::new();
-    for (name, h) in handles {
+    for (_, name, h) in handles {
         let parsed = h
             .join()
             .map_err(|_| anyhow::anyhow!("parse thread panicked: {}", name))?

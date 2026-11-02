@@ -2612,17 +2612,15 @@ pub(crate) fn getclass_text_two_tier(
                          parsed: &mut Vec<Option<(String, std::sync::Arc<DexFile>)>>|
      -> Result<()> {
         let mut imgs = Vec::with_capacity(idxs.len());
-        let mut which = Vec::with_capacity(idxs.len());
         for &i in idxs {
             if parsed[i].is_none() {
                 if let Some(img) = slots[i].take() {
-                    which.push(i);
-                    imgs.push(img);
+                    imgs.push((i, img));
                 }
             }
         }
         if !imgs.is_empty() {
-            for (i, (label, dex)) in which.into_iter().zip(parse_images(imgs)?) {
+            for (i, label, dex) in crate::inputs::parse_images_indexed(imgs)? {
                 parsed[i] = Some((label, std::sync::Arc::new(dex)));
             }
         }
@@ -2836,11 +2834,8 @@ fn getclass_text_closure(
         .collect();
 
     let mut parsed: Vec<Option<std::sync::Arc<DexFile>>> = (0..slots.len()).map(|_| None).collect();
-    for &i in &defining {
-        let Ok(dex) = parse_closure_image(&mut slots, i) else {
-            return Ok(None);
-        };
-        parsed[i] = Some(std::sync::Arc::new(dex));
+    if parse_closure_indices(&mut slots, &mut parsed, &defining).is_err() {
+        return Ok(None);
     }
     // Direct closure: the target class's supertypes/signatures/code refs.
     // Referenced classes are parsed for definitions; their code is not
@@ -2849,6 +2844,31 @@ fn getclass_text_closure(
     let mut refs: BTreeSet<String> = BTreeSet::new();
     if let Some(dex) = parsed[defining[0]].as_ref() {
         closure_class_refs(dex, &internal, &mut refs);
+        // The renderer emits the target's nested classes too; their code
+        // is part of the same dependency closure (resource wiring lives
+        // there, e.g. R fields only a nested lambda reads).
+        let prefix = format!("{internal}$");
+        for cd in &dex.class_defs {
+            let name = dex.class_name(cd.class_idx);
+            if name.starts_with(&prefix) {
+                closure_class_refs(dex, &name, &mut refs);
+            }
+        }
+        // Resource IDs are compiled as `R$id` field owners, while the renderer
+        // names the OUTER `R`; a referenced nested class therefore also
+        // needs every enclosing class's definition in the pool.
+        let mut outers: BTreeSet<String> = BTreeSet::new();
+        for r in &refs {
+            let mut cur = r.as_str();
+            while let Some((head, _)) = cur.rsplit_once('$') {
+                if head.is_empty() || refs.contains(head) {
+                    break;
+                }
+                outers.insert(head.to_string());
+                cur = head;
+            }
+        }
+        refs.extend(outers);
     }
     let mut queue: Vec<usize> = Vec::new();
     for r in &refs {
@@ -2865,12 +2885,14 @@ fn getclass_text_closure(
             }
         }
     }
-    for i in queue {
-        if parsed[i].is_none() {
-            if let Ok(dex) = parse_closure_image(&mut slots, i) {
-                parsed[i] = Some(std::sync::Arc::new(dex));
-            }
-        }
+    // A closure that reaches nearly every image has already lost the memory
+    // argument, and the full path parses them in one wave instead of the
+    // closure's setup + wave + render. Hand those classes back.
+    if (defining.len() + queue.len()).saturating_mul(10) >= parsed.len().saturating_mul(9) {
+        return Ok(None);
+    }
+    if parse_closure_indices(&mut slots, &mut parsed, &queue).is_err() {
+        return Ok(None);
     }
 
     // Full-pool registration order: defining images first, then every image
@@ -2942,39 +2964,67 @@ fn getclass_text_closure(
                 misses.len(),
                 misses.iter().take(8).cloned().collect::<Vec<_>>().join(", ")
             );
+            for m in &misses {
+                match name_to_image.get(m.as_str()) {
+                    Some(&i) => eprintln!(
+                        "[closure]   miss {} -> image {i} parsed={} label={}",
+                        m,
+                        parsed[i].is_some(),
+                        labels[i]
+                    ),
+                    None => eprintln!("[closure]   miss {} -> no image", m),
+                }
+            }
         }
         if round == 2 {
             break;
         }
-        let mut fresh = 0usize;
+        let mut fresh: Vec<usize> = Vec::new();
         for m in &misses {
             if let Some(&i) = name_to_image.get(m.as_str()) {
-                if parsed[i].is_none() {
-                    if let Ok(dex) = parse_closure_image(&mut slots, i) {
-                        parsed[i] = Some(std::sync::Arc::new(dex));
-                        fresh += 1;
-                    }
+                if parsed[i].is_none() && !fresh.contains(&i) {
+                    fresh.push(i);
                 }
             }
         }
-        if fresh == 0 {
+        if fresh.is_empty() {
+            break;
+        }
+        let Ok(n) = parse_closure_indices(&mut slots, &mut parsed, &fresh) else {
+            break;
+        };
+        if n == 0 {
             break;
         }
     }
     Ok(None)
 }
 
-fn parse_closure_image(slots: &mut [Option<Image>], i: usize) -> Result<DexFile> {
-    let Some(img) = slots.get_mut(i).and_then(|s| s.take()) else {
-        anyhow::bail!("image already consumed");
-    };
-    let raw = match img.method {
-        ZipMethod::Stored => img.data.bytes()[img.range].to_vec(),
-        ZipMethod::Deflate => {
-            crate::inflate_hint(img.data.bytes()[img.range].as_ref(), img.usize_hint)?
+/// Parse the selected, not-yet-parsed images as one bounded parallel wave.
+/// Returns how many were parsed; a corrupt image fails the whole wave (the
+/// caller then falls back to the full path, which owns the diagnostics).
+fn parse_closure_indices(
+    slots: &mut [Option<Image>],
+    parsed: &mut [Option<std::sync::Arc<DexFile>>],
+    idxs: &[usize],
+) -> Result<usize> {
+    let mut imgs = Vec::with_capacity(idxs.len());
+    for &i in idxs {
+        if parsed[i].is_none() {
+            if let Some(img) = slots.get_mut(i).and_then(|s| s.take()) {
+                imgs.push((i, img));
+            }
         }
-    };
-    DexFile::parse(raw).map_err(|e| anyhow::anyhow!(e))
+    }
+    if imgs.is_empty() {
+        return Ok(0);
+    }
+    let out = crate::inputs::parse_images_indexed(imgs)?;
+    let n = out.len();
+    for (i, _, dex) in out {
+        parsed[i] = Some(std::sync::Arc::new(dex));
+    }
+    Ok(n)
 }
 
 fn closure_type(dex: &DexFile, idx: u32) -> Option<String> {
