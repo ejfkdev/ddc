@@ -28,7 +28,7 @@ Scoop bucket 一样：一份 catalog 列出程序，一个生成器渲染各渠�
 合并进 `microsoft/winget-pkgs`（2026-10-30）；AUR 的 PKGBUILD 已生成并
 验证，但 AUR 目前临时关闭新账号注册（HTTP 503），暂时无法提交。自包含的
 `ddc-bin-<version>-1-aur.tar.gz` 仍可直接 `makepkg` 安装。npm tarball 和
-WinGet 本地清单 zip 也附在 v0.1.33 release 上。
+WinGet 本地清单 zip 也附在每次 release 上。
 
 **为什么不做 PyPI？** Python wheel 不适合装原生二进制：支持六个平台就要
 六个带 platform tag 的 wheel，每个都塞一份二进制，还要额外的发布任务。
@@ -152,9 +152,9 @@ LICENSE。渲染是确定性的，`--check` 不需要联网，直接比对字节
 **wingetcreate（Windows）：**
 
 ```powershell
-wingetcreate update ejfkdev.ddc --version 0.1.33 `
-  --urls https://github.com/ejfkdev/ddc/releases/download/v0.1.33/ddc-v0.1.33-x86_64-pc-windows-msvc.exe `
-         https://github.com/ejfkdev/ddc/releases/download/v0.1.33/ddc-v0.1.33-aarch64-pc-windows-msvc.exe `
+wingetcreate update ejfkdev.ddc --version 0.1.34 `
+  --urls https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-x86_64-pc-windows-msvc.exe `
+         https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-aarch64-pc-windows-msvc.exe `
   --submit
 ```
 
@@ -209,7 +209,7 @@ NPM_TOKEN=npm_... ./packaging/publish.sh npm --yes
 ```bash
 cd packaging/npm/ddc
 npm pack
-npm install -g --prefix /tmp/ddc-npm ./ejfkdev-ddc-0.1.33.tgz
+npm install -g --prefix /tmp/ddc-npm ./ejfkdev-ddc-0.1.34.tgz
 /tmp/ddc-npm/bin/ddc --version
 ```
 

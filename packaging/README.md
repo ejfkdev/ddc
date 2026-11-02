@@ -32,7 +32,7 @@ validated. AUR submission is currently blocked because AUR has temporarily
 closed new account registration (HTTP 503); the self-contained
 `ddc-bin-<version>-1-aur.tar.gz` bundle remains installable with `makepkg`.
 The registry-independent npm tarball and WinGet local-manifest zip are also
-attached to the v0.1.33 release.
+attached to every release.
 
 **Why no PyPI?** A Python wheel is the wrong container for a native binary:
 supporting six platforms means six platform-tagged wheels, each carrying the
@@ -169,9 +169,9 @@ For a new version, update the community package with either:
 **wingetcreate (Windows):**
 
 ```powershell
-wingetcreate update ejfkdev.ddc --version 0.1.33 `
-  --urls https://github.com/ejfkdev/ddc/releases/download/v0.1.33/ddc-v0.1.33-x86_64-pc-windows-msvc.exe `
-         https://github.com/ejfkdev/ddc/releases/download/v0.1.33/ddc-v0.1.33-aarch64-pc-windows-msvc.exe `
+wingetcreate update ejfkdev.ddc --version 0.1.34 `
+  --urls https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-x86_64-pc-windows-msvc.exe `
+         https://github.com/ejfkdev/ddc/releases/download/v0.1.34/ddc-v0.1.34-aarch64-pc-windows-msvc.exe `
   --submit
 ```
 
@@ -229,7 +229,7 @@ Test the exact tarball locally first:
 ```bash
 cd packaging/npm/ddc
 npm pack
-npm install -g --prefix /tmp/ddc-npm ./ejfkdev-ddc-0.1.33.tgz
+npm install -g --prefix /tmp/ddc-npm ./ejfkdev-ddc-0.1.34.tgz
 /tmp/ddc-npm/bin/ddc --version
 ```
 

@@ -115,7 +115,7 @@ Without any package registry:
 
 ```bash
 # replace with the release you want
-VERSION=0.1.33
+VERSION=0.1.34
 npm install -g "https://github.com/ejfkdev/ddc/releases/download/v$VERSION/ejfkdev-ddc-$VERSION.tgz"
 ```
 
@@ -132,7 +132,7 @@ meantime (requires `base-devel`):
 
 ```bash
 # replace with the release you want
-VERSION=0.1.33
+VERSION=0.1.34
 curl -LO "https://github.com/ejfkdev/ddc/releases/download/v$VERSION/ddc-bin-$VERSION-1-aur.tar.gz"
 tar xzf "ddc-bin-$VERSION-1-aur.tar.gz"
 cd ddc-bin && makepkg -si
@@ -203,7 +203,7 @@ in [docs/validation.md](docs/validation.md)
 | qq | 374 MB | **47.70s** | 33.51s | 2552 MB |
 
 
-Recorded 2026-11-02 with the current main build (post-v0.1.33): three serial runs per cell (arithmetic mean; peak RSS is the run maximum). Peak RSS is `/usr/bin/time -l`. WhatsApp's full run hits the deadline guard on one pathological class (`X.K2H`) and exits 1 after writing 99,482 files; its timing includes that deadline.
+Recorded 2026-11-02 with v0.1.34: three serial runs per cell (arithmetic mean; peak RSS is the run maximum). Peak RSS is `/usr/bin/time -l`. WhatsApp's full run hits the deadline guard on one pathological class (`X.K2H`) and exits 1 after writing 99,482 files; its timing includes that deadline.
 </details>
 
 Query subcommands on the same APKs (cells: time / peak RSS;
