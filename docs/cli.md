@@ -70,8 +70,10 @@ while `ddc a.dex dump/` treats a real dex directory as an input.
 | `-o, --output <path>` | output location: dir / `file.java` / `-` |
 | `-c, --class FQCN` | decompile only this class (dotted or slashed; nested/anonymous/local classes of it come along) |
 | `-l, --list` | list class names and exit |
-| `-t, --threads <n>` | worker count (default: CPU count; stdout forces one for pool order) |
+| `-t, --threads <n>` | worker count (default: CPU count minus the file-writer pool; stdout forces one for pool order) |
 | `--no-comments` | omit the provenance header |
+| `--fast` | skip the cure code-simplification pass, keep formatting (roughly halves large runs) |
+| `--symbols <dir>` | rebuild the IntDef symbol table from an SDK platform dir (`android.jar` + `data/annotations.zip`) |
 | `-v, --verbose` | per-dex stats and slow classes on stderr |
 | `-h, --help` / `-V, --version` | help / name+version+homepage |
 
@@ -262,17 +264,21 @@ clean (timing prints only with `-o`).
 
 ### Decompile surgically
 
-- **`ddc getclass <input> FQCN [-o FILE] [--dex NAME] [--low-memory]`** —
-  one class with its nested/anonymous/local classes, through the full
-  pipeline. Ambiguous names (defined in several images) get a warning
-  listing the images; the defining image is registered first so the pool
-  resolves from it. `--low-memory` starts from the defining image and
-  loads further images only when the renderer actually asks for a class
-  they define (re-rendering until stable). On multi-dex APKs this cuts
-  peak memory roughly in half for self-contained classes; highly
-  connected classes can be slower. Text output only; the default path is
-  unchanged. Archives with four or fewer images use the full path
-  automatically.
+- **`ddc getclass <input> FQCN [-o FILE] [--dex NAME] [--fast]
+  [--low-memory]`** — one class with its nested/anonymous/local classes,
+  through the full pipeline. Ambiguous names (defined in several images)
+  get a warning listing the images; the defining image is registered
+  first so the pool resolves from it. The default path builds a
+  dependency closure: it parses the defining image plus the images of
+  the target's supertypes, signatures, code references and enclosing
+  classes, then adds images named by unresolved lookups and re-renders
+  (up to three rounds). Archives with four or fewer images, or a closure
+  that reaches ~90% of the images, use the full path. `--low-memory`
+  selects the two-tier mode: start from the defining image and load
+  further images only when the renderer asks for a class they define,
+  re-rendering until stable — slower on highly connected classes.
+  `--fast` skips cure. `--low-memory` is text-only; the default path
+  supports every output format.
 - **`ddc getmethod <input> FQCN[.method] [-o FILE]`** — one method,
   sliced out of the decompiled class: provenance header + package line +
   every matching overload, dedented. A miss lists the class's method

@@ -16,18 +16,24 @@
 [![WinGet](https://img.shields.io/badge/WinGet-ejfkdev.ddc-0078D4?logo=windows)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/e/ejfkdev/ddc)
 
 `ddc` 把 Android DEX 字节码反编译回可读的 Java —— 真实 App 级别的速度、
-可以像数据库一样查询，并且**经过 javac 验证**：七个真实 APK 共
-909,689 个输出文件全部零语法错误。
+可以像数据库一样查询，并且**质量优先**：七个真实 APK 共 909,689 个
+输出文件全部通过 `javac` 解析闸门，每个文件还经过精确、语义保持的
+源码级简化。
 
 ## 特性
 
+- **质量优先，而不只是快** —— 七个基准 APK（reqable/Telegram/WhatsApp/
+  weibo/weixin/qq/lark，共 91 万文件）的输出全部通过 `javac` 解析闸门，
+  **零语法错误**；带完整 Android classpath 的 javac 电池持续跟踪语义
+  回归（当前约 **7,500** 个 ddc 侧错误 / 91 万文件，v0.1.19 为 11,345）。
+  默认每个文件还会经过 [cure](https://github.com/ejfkdev/cure) 的精确、
+  语义保持源码级简化——寄存器拷贝链内联、if/else 赋值折叠为三元、
+  还原 for-each、清除死存储与编译器产物：**输出行数 −15%**，javac 门
+  结果不变。大小写仅差一位的类名对（`X/Cua` vs `X/cua`）各自成文件，
+  不再后者覆盖前者。
 - **快** —— 226MB/20 dex 的 weibo（9.8 万个类）全量反编译 **~19s**（高质量模式；`--fast` 约 **9.7s**），
   62MB 的 Telegram **~6.4s**（`--fast` 约 **3.9s**）；病态类跑在带截止期的受控线程上，不会拖死
   整个运行。
-- **能编译** —— 七个基准 APK（reqable/Telegram/WhatsApp/weibo/weixin/
-  qq/lark，共 91 万文件）的输出全部通过 javac，**零语法错误**；
-  大小写仅差一位的类名对（`X/Cua` vs `X/cua`）两个类都各自成文件，
-  不再后者覆盖前者。
 - **渐进式反编译** —— 15 个查询子命令（字符串、交叉引用、继承谱、
   manifest、资源、方法粒度反编译）毫秒级出答案：先查元数据、按需定点
   反编译，绝大多数分析不必付全量的代价。
@@ -40,19 +46,12 @@
   域表，`--symbols` 可覆盖）；Kotlin 空检查噪声消除、synthetic
   `access$NNN` 桥在调用点内联。
 - **可复现输出** —— 无时间戳，两次运行 diff 干净。
-
-- **可复现输出** —— 无时间戳，两次运行 diff 干净。
-- **默认输出即人写形态**（[cure](https://github.com/ejfkdev/cure)）：每
-  个文件经过语义保持的源码级优化 pass——寄存器拷贝链内联、if/else
-  赋值折叠为三元、for-each 还原、死存储与编译器产物清除，真实语料
-  **输出行数 −15%** 且 javac 门结果不变。优化是精确的，所以花时间：
-  weibo（11 万文件）优化后 19 s，`--fast` 跳过简化仅保格式为 9.7 s。
 - **HTTP REST + MCP，开箱内置**（[xyz-rust](https://github.com/ejfkdev/xyz-rust)）：
   `ddc serve` 把每个查询命令暴露为 REST 路由（GET 绑 query 参数，
   POST 亦接受 JSON body）+ `GET /openapi.json` +
   流式 MCP 端点 `/mcp`（MCP 客户端直接指向 `http://地址/mcp`）；
   `ddc http` 是纯 REST 形态（不挂 `/mcp`）；`ddc mcp stdio|http` 把
-  同一批命令作为带输入/输出 schema 的 MCP 工具运行。查询子命令支持
+  10 个核心查询作为带输入/输出 schema 的 MCP 工具运行。查询子命令支持
   `--format auto|text|table|markdown|md|json|jsonl`（auto：终端表格、
   管道输出稳定文本）。
 - **中英双语 CLI** —— 按环境变量自动识别语言（`DDC_LANG=zh|en` 强制
@@ -244,7 +243,7 @@ pattern-switch 呈现为反糖分发链。上述 javac 门控是**语法**门—
 ## 测试
 
 ```bash
-cargo test    # 74 个测试
+cargo test    # 101 个测试
 ```
 
 ## 许可

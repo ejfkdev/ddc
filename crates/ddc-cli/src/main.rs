@@ -141,7 +141,7 @@ fn print_help_en() {
     println!("  auto (default)   table when stdout is a terminal, text when piped");
     println!("  text             the stable column format scripts have always parsed");
     println!("  table            aligned tables with header rules (xyz-rust renderer)");
-    println!("  markdown         pipe tables / fenced source blocks");
+    println!("  markdown | md    pipe tables / fenced source blocks");
     println!("  json | jsonl     the typed reports the HTTP and MCP frontends serve");
     println!();
     println!("HTTP & MCP (built in, via github.com/ejfkdev/xyz-rust):");
@@ -265,7 +265,7 @@ fn print_help_zh() {
     println!("  auto（默认）     stdout 是终端时输出表格，被管道/程序调用时输出文本");
     println!("  text             脚本一直在解析的稳定列格式");
     println!("  table            对齐表格 + 表头分隔线（xyz-rust 渲染器）");
-    println!("  markdown         管道表格 / 源码围栏代码块");
+    println!("  markdown | md    管道表格 / 源码围栏代码块");
     println!("  json | jsonl     HTTP 与 MCP 前端服务的同构类型数据");
     println!();
     println!("HTTP 与 MCP（内置，基于 github.com/ejfkdev/xyz-rust）：");
@@ -324,11 +324,11 @@ struct SubHelp {
 // The shared --format row (query commands, English card).
 const FMT_ROW_EN: (&str, &str) = (
     "--format FMT",
-    "auto | text | table | markdown | json | jsonl (default auto: table on a terminal, text when piped)",
+    "auto | text | table | markdown | md | json | jsonl (default auto: table on a terminal, text when piped)",
 );
 const FMT_ROW_ZH: (&str, &str) = (
     "--format FMT",
-    "auto | text | table | markdown | json | jsonl（默认 auto：终端表格、管道文本）",
+    "auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）",
 );
 
 // Option entries shared by several commands.
@@ -657,7 +657,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("--fast", "skip the code-simplification pass (formatting only)"),
                 (
                     "--low-memory",
-                    "parse only the images the class actually needs (slower on highly connected classes)",
+                    "two-tier loading: start from the defining image, load on demand (default: dependency closure)",
                 ),
             ],
             examples: &[
@@ -666,7 +666,7 @@ const SUB_HELP_EN: &[(&str, SubHelp)] = &[
                 ("ddc getclass base.apk patch.dex com.example.Foo", "several inputs merge into one pool"),
                 (
                     "ddc getclass app.apk com.example.Foo --low-memory",
-                    "parse only the images the class needs (multi-dex memory saver)",
+                    "two-tier on-demand loading (multi-dex memory saver)",
                 ),
             ],
         },
@@ -1020,8 +1020,12 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 DEX_ZH,
                 FMT_ROW_ZH,
                 (
+                    "--fast",
+                    "跳过代码简化 pass（仅格式化）",
+                ),
+                (
                     "--low-memory",
-                    "只解析该类真正需要的镜像（高连接类会更慢）",
+                    "两级按需加载：从定义镜像开始，渲染器请求时再加载（默认：依赖闭包）",
                 ),
             ],
             examples: &[
@@ -1030,7 +1034,7 @@ const SUB_HELP_ZH: &[(&str, SubHelp)] = &[
                 ("ddc getclass base.apk patch.dex com.example.Foo", "多输入合并为一个池"),
                 (
                     "ddc getclass app.apk com.example.Foo --low-memory",
-                    "只解析该类需要的镜像（多 dex 省内存）",
+                    "两级按需加载（多 dex 省内存）",
                 ),
             ],
         },
@@ -1571,8 +1575,8 @@ pub(crate) fn parse_format(v: &str) -> Result<OutFormat> {
         other => bail!(
             "{}",
             bif!(
-                "unknown format {0:?} (auto|text|table|markdown|json|jsonl)",
-                "未知格式 {0:?}（auto|text|table|markdown|json|jsonl）";
+                "unknown format {0:?} (auto|text|table|markdown|md|json|jsonl)",
+                "未知格式 {0:?}（auto|text|table|markdown|md|json|jsonl）";
                 other
             )
         ),

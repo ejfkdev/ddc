@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "ddc command-line interface"
+description = "Android DEX → Java decompiler CLI: quality-first, javac-verified output, fast queries"
 
 [[bin]]
 name = "ddc"

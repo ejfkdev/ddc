@@ -16,21 +16,30 @@
 [![WinGet](https://img.shields.io/badge/WinGet-ejfkdev.ddc-0078D4?logo=windows)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/e/ejfkdev/ddc)
 
 `ddc` decompiles Android DEX bytecode back into readable Java — at
-real-world app scale, queryable like a database, and **javac-verified**:
+real-world app scale, queryable like a database, and **quality-first**:
 every one of the 909,689 files it emits across seven real-world APKs
-parses cleanly.
+passes `javac`'s parse gate, and every file is simplified by an exact,
+semantic-preserving source pass.
 
 ## Highlights
 
+- **Quality first, not just fast** — the full output of all seven
+  benchmark APKs (reqable, Telegram, WhatsApp, weibo, weixin, qq, lark —
+  0.91M files) passes `javac`'s parse gate with **zero syntax errors**,
+  and a full-classpath javac battery tracks semantic regressions
+  (**~7,500** ddc-attributable errors across 0.91M files, down from
+  11,345). By default every file then goes through
+  [cure](https://github.com/ejfkdev/cure), an exact semantic-preserving
+  source pass that inlines register-copy chains, folds if/else
+  assignments into ternaries, recovers for-each, and drops dead stores:
+  **−15% output lines** with identical gate results. Case-variant name
+  pairs (`X/Cua` vs `X/cua`) keep separate files instead of the last one
+  silently overwriting.
 - **Fast** — a 226 MB / 20-dex APK (weibo, 98k classes) fully
   decompiles in **~19s** at high quality (**~9.7s** with `--fast`), a
-  62 MB app (Telegram) in **~6.4s** (**~3.9s** with `--fast`); pathological classes run on deadline-bounded monitored
-  threads instead of hanging the run.
-- **Compiles** — the full output of all seven benchmark APKs
-  (reqable, Telegram, WhatsApp, weibo, weixin, qq, lark — 0.91M
-  files) passes `javac` with **zero syntax errors**; every class of
-  a case-variant name pair (`X/Cua` vs `X/cua`) is preserved as
-  its own file instead of the last one silently overwriting.
+  62 MB app (Telegram) in **~6.4s** (**~3.9s** with `--fast`);
+  pathological classes run on deadline-bounded monitored threads instead
+  of hanging the run.
 - **Progressive decompilation** — 15 query subcommands (strings,
   cross-references, hierarchies, manifest, resources, per-method
   decompiles) answer in milliseconds: query metadata first, decompile
@@ -45,20 +54,12 @@ parses cleanly.
   table, `--symbols` overrides); Kotlin null-check noise is elided and
   synthetic `access$NNN` bridges inline at their call sites.
 - **Reproducible output** — no timestamps; two runs diff cleanly.
-- **Human-shaped output, by default** ([cure](https://github.com/ejfkdev/cure)):
-  every file goes through a semantic-preserving source-level pass that
-  inlines register-copy chains, folds if/else assignments into
-  ternaries, recovers for-each, drops dead stores and compiler
-  artifacts — −15% output lines on real corpora with identical
-  javac-gate results. The pass is exact, so it costs time: weibo
-  (110k files) takes 19 s optimized vs 9.7 s with `--fast` (skip
-  the simplification, keep formatting).
 - **HTTP REST + MCP, built in** ([xyz-rust](https://github.com/ejfkdev/xyz-rust)):
   `ddc serve` exposes every query as a REST route (GET with query
   params or POST with a JSON body) plus `GET
   /openapi.json` and a streamable MCP endpoint at `/mcp` — point an
   MCP client at `http://addr/mcp`; `ddc http` is REST-only (no
-  `/mcp`); `ddc mcp stdio|http` runs the same commands as MCP tools
+  `/mcp`); `ddc mcp stdio|http` exposes the 10 core queries as MCP tools
   with input and output schemas. Query commands take `--format
   auto|text|table|markdown|md|json|jsonl` (auto: table on a terminal,
   the stable text form when piped).
@@ -260,7 +261,7 @@ roughly half that, the gap concentrated in type recovery. Details:
 ## Testing
 
 ```bash
-cargo test    # 74 tests
+cargo test    # 101 tests
 ```
 
 ## License
