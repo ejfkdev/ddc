@@ -3,6 +3,7 @@
 //! path (raw images, prefix-friendly), mirroring jadx's quick-lookup tools.
 
 use anyhow::{bail, Context, Result};
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 
@@ -409,22 +410,47 @@ pub(crate) fn cmd_strings(args: &[String]) -> Result<()> {
             }
         )?;
         let shown = std::cell::Cell::new(0usize);
-        let total = crate::api::string_scan_window(
-            &common.input,
-            filter.as_deref(),
-            with_loc,
-            &common.dex_filters,
-            offset,
-            limit,
-            |r| {
-                if r.used_by.is_empty() {
-                    let _ = writeln!(out, "{:10}  {}", r.dex, r.string);
-                } else {
-                    let _ = writeln!(out, "{:10}  {}  {}", r.dex, r.string, r.used_by.join("; "));
-                }
-                shown.set(shown.get() + 1);
-            },
-        )?;
+        let mut row = String::with_capacity(256);
+        let total = if with_loc {
+            crate::api::string_scan_window(
+                &common.input,
+                filter.as_deref(),
+                true,
+                &common.dex_filters,
+                offset,
+                limit,
+                |r| {
+                    row.clear();
+                    let _ = write!(&mut row, "{:10}  {}", r.dex, r.string);
+                    if !r.used_by.is_empty() {
+                        row.push_str("  ");
+                        for (i, m) in r.used_by.iter().enumerate() {
+                            if i > 0 {
+                                row.push_str("; ");
+                            }
+                            row.push_str(m);
+                        }
+                    }
+                    row.push('\n');
+                    let _ = out.write_all(row.as_bytes());
+                    shown.set(shown.get() + 1);
+                },
+            )?
+        } else {
+            crate::api::string_scan_text(
+                &common.input,
+                filter.as_deref(),
+                &common.dex_filters,
+                offset,
+                limit,
+                |dex, s| {
+                    row.clear();
+                    let _ = writeln!(&mut row, "{:10}  {}", dex, s);
+                    let _ = out.write_all(row.as_bytes());
+                    shown.set(shown.get() + 1);
+                },
+            )?
+        };
         out.flush()?;
         if limit != 0 || offset != 0 {
             let end = offset.saturating_add(shown.get());

@@ -114,6 +114,68 @@ pub struct StringRow {
     pub used_by: Vec<String>,
 }
 
+/// Text-only no-locations scan: emits `(dex entry, quoted string)` for the
+/// window without allocating a StringRow (and its dex-name clone) per row.
+/// The quoted buffer is reused across rows.
+pub fn string_scan_text(
+    input: &Path,
+    filter: Option<&str>,
+    dex_filters: &[String],
+    offset: usize,
+    limit: usize,
+    mut emit: impl FnMut(&str, &str),
+) -> Result<usize> {
+    use std::fmt::Write as _;
+    let needles = filter.map(crate::findrefs::byte_needles);
+    let mut base = 0usize;
+    let mut quoted = String::new();
+    for_each_string_image(
+        &input.to_path_buf(),
+        dex_filters,
+        &mut |label, image| {
+            let dex_name = label
+                .rsplit_once('!')
+                .map(|(_, e)| e)
+                .unwrap_or(label);
+            let Ok(dex) = RawDex::parse(image) else {
+                return;
+            };
+            let local_lo = offset.saturating_sub(base);
+            let local_hi = if limit == 0 {
+                usize::MAX
+            } else {
+                offset.saturating_add(limit).saturating_sub(base)
+            };
+            let mut window: Vec<u32> = Vec::new();
+            let mut count = 0usize;
+            for idx in 0..dex.str_n as u32 {
+                let Some(bytes) = dex.string_bytes(idx) else {
+                    continue;
+                };
+                let hit = match &needles {
+                    Some(f) => crate::findrefs::bytes_contain(bytes, f),
+                    None => true,
+                };
+                if !hit {
+                    continue;
+                }
+                if count >= local_lo && count < local_hi {
+                    window.push(idx);
+                }
+                count += 1;
+            }
+            for idx in window {
+                let s = decode_mutf8_lossy(dex.string_bytes(idx).unwrap_or(&[]));
+                quoted.clear();
+                let _ = write!(&mut quoted, "{s:?}");
+                emit(dex_name, &quoted);
+            }
+            base += count;
+        },
+    )?;
+    Ok(base)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[derive(xyz_rust::XyzOutput)]
 pub struct RelationRow {
@@ -835,6 +897,7 @@ pub fn string_scan_window(
     mut emit: impl FnMut(StringRow),
 ) -> Result<usize> {
     let mut base = 0usize;
+    let needles = filter.map(crate::findrefs::byte_needles);
     let each: ImageEachFn = if with_locations {
             for_each_image
         } else {
@@ -849,7 +912,6 @@ pub fn string_scan_window(
         let Ok(dex) = RawDex::parse(image) else {
             return;
         };
-        let needles = filter.map(crate::findrefs::byte_needles);
         // 单遍扫描字符串表：只保留窗口内的索引（不再为全表建 1.2M 项
         // BTreeMap——窗口查询的成本降到纯 memmem）。
         let local_lo = offset.saturating_sub(base);
