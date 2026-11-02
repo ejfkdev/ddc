@@ -165,9 +165,29 @@ pub fn string_scan_text(
                 count += 1;
             }
             for idx in window {
-                let s = decode_mutf8_lossy(dex.string_bytes(idx).unwrap_or(&[]));
+                let bytes = dex.string_bytes(idx).unwrap_or(&[]);
                 quoted.clear();
-                let _ = write!(&mut quoted, "{s:?}");
+                // Most entries are plain printable ASCII: Debug quoting is
+                // just '"' + bytes + '"', no formatter needed.
+                let plain = bytes
+                    .iter()
+                    .all(|&b| (0x20..=0x7e).contains(&b) && b != b'"' && b != b'\\');
+                if plain {
+                    quoted.push('"');
+                    // ASCII validation above makes this infallible.
+                    quoted.push_str(std::str::from_utf8(bytes).unwrap());
+                    quoted.push('"');
+                } else {
+                    match std::str::from_utf8(bytes) {
+                        Ok(s) => {
+                            let _ = write!(&mut quoted, "{s:?}");
+                        }
+                        Err(_) => {
+                            let s = decode_mutf8_lossy(bytes);
+                            let _ = write!(&mut quoted, "{s:?}");
+                        }
+                    }
+                }
                 emit(dex_name, &quoted);
             }
             base += count;
