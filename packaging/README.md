@@ -156,7 +156,7 @@ install.
 
 ### Windows Package Manager (WinGet)
 
-The package is live in `microsoft/winget-pkgs` as `ejfkdev.ddc` 0.1.33
+The package is live in `microsoft/winget-pkgs` as `ejfkdev.ddc` 0.1.34
 (PR [#437825](https://github.com/microsoft/winget-pkgs/pull/437825), merged
 2026-10-30; the community manifest uses schema 1.12.0 and adds the VCRedist
 dependencies). The generated 1.6.0 manifests under
@@ -204,7 +204,7 @@ npm config set //npm.pkg.github.com/:_authToken "$GITHUB_TOKEN"
 npm install -g @ejfkdev/ddc
 ```
 
-**npmjs (live):** `@ejfkdev/ddc@0.1.33` is published. The publish script
+**npmjs (live):** `@ejfkdev/ddc@0.1.34` is published. The publish script
 targets `https://registry.npmjs.org/` explicitly, so a local mirror registry
 does not redirect the publish, and it preflights `npm whoami`. Log in first:
 

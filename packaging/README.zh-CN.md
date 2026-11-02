@@ -171,7 +171,7 @@ wingetcreate update ejfkdev.ddc --version 0.1.35 `
 release 二进制并校验内嵌 SHA-256，`ddc` launcher 再执行原生二进制。如果
 install scripts 被禁用（或 npm 拦截），launcher 会在首次运行时下载。
 npm 上不带 scope 的 `ddc` 已被占用，所以使用 scope。npmjs 已发布
-`@ejfkdev/ddc@0.1.33`；同一个 tarball 也附在每个 release 上，见
+`@ejfkdev/ddc@0.1.34`；同一个 tarball 也附在每个 release 上，见
 [直接安装资产](#直接安装资产)。
 
 **GitHub Packages（已上线）**：
@@ -185,7 +185,7 @@ npm config set //npm.pkg.github.com/:_authToken "$GITHUB_TOKEN"
 npm install -g @ejfkdev/ddc
 ```
 
-**npmjs（已上线）**：`@ejfkdev/ddc@0.1.33` 已发布。发布脚本显式指向
+**npmjs（已上线）**：`@ejfkdev/ddc@0.1.34` 已发布。发布脚本显式指向
 `https://registry.npmjs.org/`，不会因为你本机的 mirror 配置发错仓库，并且
 会先跑 `npm whoami` 检查登录。先登录：
 
