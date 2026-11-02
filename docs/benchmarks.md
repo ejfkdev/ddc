@@ -7,7 +7,7 @@ measured after a cooldown, release profile with
 `target-cpu=native`. The benchmark harness is kept out of the published tree (local APK paths); the tables
 above are the recorded results.
 
-Recorded 2026-10-22 with v0.1.33: one run per cell after a short settle; the previous table was recorded on an earlier (pre-cure) version; full and `--fast` are now separate columns. Peak RSS is `/usr/bin/time -l`.
+Recorded 2026-11-02 with the current main build (post-v0.1.33): three serial runs per cell (arithmetic mean; peak RSS is the run maximum). Peak RSS is `/usr/bin/time -l`. WhatsApp's full run hits the deadline guard on one pathological class (`X.K2H`) and exits 1 after writing 99,482 files; its timing includes that deadline.
 
 ## Full decompile
 
@@ -18,13 +18,13 @@ measured after a cooldown:
 
 | APK | Size | Full decompile | `--fast` | Peak RSS (full) |
 |---|---|---|---|---|
-| reqable | 34 MB | **0.83s** | 0.50s | 280 MB |
-| Telegram | 62 MB | **6.91s** | 4.08s | 924 MB |
-| WhatsApp | 139 MB | **24.98s** | 11.41s | 1067 MB |
-| weibo | 226 MB | **21.03s** | 10.87s | 1380 MB |
-| weixin | 268 MB | **40.21s** | 25.29s | 1497 MB |
-| lark | 398 MB | **26.29s** | 14.61s | 2406 MB |
-| qq | 374 MB | **57.00s** | 31.96s | 2511 MB |
+| reqable | 34 MB | **0.76s** | 0.46s | 317 MB |
+| Telegram | 62 MB | **6.43s** | 3.86s | 931 MB |
+| WhatsApp | 139 MB | **23.25s** | 10.34s | 1114 MB |
+| weibo | 226 MB | **19.10s** | 9.73s | 1383 MB |
+| weixin | 268 MB | **33.20s** | 21.94s | 1519 MB |
+| lark | 398 MB | **22.29s** | 12.70s | 2403 MB |
+| qq | 374 MB | **47.70s** | 33.51s | 2552 MB |
 
 **Compile validation — read the scope before quoting this number**:
 every `.java` of all seven APKs (909,689 files) passes `javac`'s parse
@@ -55,19 +55,19 @@ large class):
 
 | Command | reqable | Telegram | WhatsApp | weibo | weixin | lark | qq |
 |---|---|---|---|---|---|---|---|
-| `info` | 0.24s / 55MB | 0.41s / 117MB | 0.85s / 316MB | 1.32s / 569MB | 1.61s / 602MB | 2.46s / 969MB | 2.30s / 1145MB |
-| `listclasses` | 0.02s / 25MB | 0.03s / 89MB | 0.04s / 96MB | 0.14s / 337MB | 0.16s / 371MB | 0.18s / 251MB | 0.24s / 311MB |
-| `manifest` | 0.00s / 12MB | 0.00s / 19MB | 0.00s / 26MB | 0.01s / 48MB | 0.01s / 37MB | 0.01s / 34MB | 0.01s / 54MB |
-| `mainactivity` | 0.02s / 20MB | 0.06s / 72MB | 0.08s / 136MB | 0.17s / 199MB | 0.18s / 199MB | 0.22s / 226MB | 0.31s / 300MB |
-| `res` | 0.00s / 12MB | 0.00s / 20MB | 0.00s / 27MB | 0.02s / 56MB | 0.01s / 37MB | 0.01s / 36MB | 0.01s / 57MB |
-| `largest` | 0.02s / 28MB | 0.05s / 71MB | 0.13s / 195MB | 0.32s / 363MB | 0.30s / 346MB | 0.46s / 519MB | 0.66s / 631MB |
-| `strings` | 0.02s / 20MB | 0.04s / 55MB | 0.12s / 117MB | 0.23s / 177MB | 0.28s / 198MB | 0.18s / 192MB | 0.49s / 295MB |
-| `findrefs-string` | 0.02s / 31MB | 0.03s / 74MB | 0.04s / 203MB | 0.06s / 397MB | 0.08s / 425MB | 0.04s / 322MB | 0.10s / 849MB |
-| `findrefs-method` | 0.02s / 31MB | 0.05s / 81MB | 0.04s / 212MB | 0.06s / 374MB | 0.07s / 448MB | 0.07s / 581MB | 0.11s / 917MB |
-| `members` | 0.01s / 19MB | 0.03s / 55MB | 0.05s / 118MB | 0.11s / 174MB | 0.11s / 180MB | 0.14s / 218MB | 0.21s / 285MB |
-| `hierarchy` | 0.01s / 20MB | 0.03s / 55MB | 0.05s / 127MB | 0.10s / 174MB | 0.11s / 177MB | 0.15s / 194MB | 0.21s / 294MB |
-| `disasm` | 0.01s / 19MB | 0.03s / 58MB | 0.05s / 124MB | 0.10s / 175MB | 0.11s / 182MB | 0.14s / 193MB | 0.20s / 281MB |
-| `getclass` | 0.02s / 33MB | 0.21s / 131MB | 0.18s / 256MB | 0.41s / 515MB | 0.50s / 527MB | 0.70s / 830MB | 1.30s / 1200MB |
+| `info` | 0.10s / 14MB | 0.18s / 24MB | 0.42s / 58MB | 0.67s / 72MB | 0.79s / 60MB | 1.15s / 111MB | 1.15s / 92MB |
+| `listclasses` | 0.01s / 19MB | 0.03s / 54MB | 0.04s / 67MB | 0.11s / 214MB | 0.15s / 220MB | 0.16s / 159MB | 0.25s / 205MB |
+| `manifest` | 0.00s / 12MB | 0.00s / 19MB | 0.00s / 26MB | 0.01s / 49MB | 0.01s / 37MB | 0.00s / 34MB | 0.01s / 54MB |
+| `mainactivity` | 0.02s / 19MB | 0.05s / 69MB | 0.03s / 83MB | 0.16s / 206MB | 0.16s / 214MB | 0.13s / 153MB | 0.17s / 210MB |
+| `res` | 0.00s / 12MB | 0.00s / 20MB | 0.00s / 27MB | 0.01s / 57MB | 0.01s / 37MB | 0.00s / 36MB | 0.02s / 57MB |
+| `largest` | 0.01s / 19MB | 0.02s / 56MB | 0.04s / 137MB | 0.07s / 176MB | 0.08s / 178MB | 0.10s / 198MB | 0.17s / 287MB |
+| `strings` | 0.01s / 20MB | 0.03s / 56MB | 0.11s / 118MB | 0.19s / 176MB | 0.24s / 191MB | 0.13s / 198MB | 0.47s / 297MB |
+| `findrefs-string` | 0.02s / 29MB | 0.03s / 80MB | 0.04s / 218MB | 0.07s / 410MB | 0.07s / 446MB | 0.05s / 268MB | 0.12s / 602MB |
+| `findrefs-method` | 0.02s / 29MB | 0.05s / 93MB | 0.04s / 221MB | 0.06s / 399MB | 0.07s / 409MB | 0.08s / 494MB | 0.13s / 562MB |
+| `members` | 0.01s / 19MB | 0.02s / 56MB | 0.03s / 68MB | 0.08s / 175MB | 0.08s / 185MB | 0.11s / 145MB | 0.17s / 176MB |
+| `hierarchy` | 0.01s / 19MB | 0.03s / 53MB | 0.02s / 61MB | 0.09s / 189MB | 0.10s / 194MB | 0.10s / 148MB | 0.13s / 182MB |
+| `disasm` | 0.02s / 19MB | 0.05s / 62MB | 0.03s / 58MB | 0.09s / 194MB | 0.13s / 199MB | 0.07s / 122MB | 0.12s / 155MB |
+| `getclass` | 0.03s / 33MB | 0.24s / 133MB | 0.22s / 266MB | 0.49s / 407MB | 0.59s / 581MB | 0.77s / 710MB | 1.40s / 884MB |
 
 ## Methodology notes
 
