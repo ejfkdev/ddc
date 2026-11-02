@@ -307,6 +307,59 @@ fn getclass_stdout_is_clean() {
 }
 
 #[test]
+fn getclass_dependency_closure_matches_full_pool() {
+    // Five images, only the first defines a class: the default closure path
+    // parses the defining image and renders without touching the empty four,
+    // and must produce byte-identical source to the full-pool path.
+    let mut empty = std::fs::read(fixture()).unwrap();
+    empty[0x60..0x64].copy_from_slice(&0u32.to_le_bytes()); // class_defs_size
+    empty[0x64..0x68].copy_from_slice(&0u32.to_le_bytes()); // class_defs_off
+    let hello = std::fs::read(fixture()).unwrap();
+    let dir = tmp("closure-sparse");
+    std::fs::create_dir_all(&dir).unwrap();
+    let apk = dir.join("sparse.apk");
+    std::fs::write(
+        &apk,
+        stored_zip(&[
+            ("classes.dex", hello),
+            ("classes2.dex", empty.clone()),
+            ("classes3.dex", empty.clone()),
+            ("classes4.dex", empty.clone()),
+            ("classes5.dex", empty),
+        ]),
+    )
+    .unwrap();
+
+    let closure = run(ddc()
+        .env("DDC_STATS", "1")
+        .arg("getclass")
+        .arg(&apk)
+        .arg("Greeter"));
+    assert!(closure.status.success(), "{}", stderr(&closure));
+    assert!(
+        stderr(&closure).contains("[closure] success"),
+        "closure path not taken:\n{}",
+        stderr(&closure)
+    );
+    let full = run(ddc()
+        .env("DDC_NO_CLOSURE", "1")
+        .arg("getclass")
+        .arg(&apk)
+        .arg("Greeter"));
+    assert!(full.status.success(), "{}", stderr(&full));
+    assert_eq!(stdout(&closure), stdout(&full));
+
+    // A missing class falls through to the full path's diagnostics.
+    let missing = run(ddc().arg("getclass").arg(&apk).arg("no.Such"));
+    assert_eq!(missing.status.code(), Some(2));
+    assert!(
+        stderr(&missing).contains("not found"),
+        "diagnostics:\n{}",
+        stderr(&missing)
+    );
+}
+
+#[test]
 fn manifest_stdout_is_clean() {
     let o = run(ddc().arg("manifest").arg(axml_fixture()));
     assert!(o.status.success());

@@ -29,6 +29,7 @@ impl Source {
 /// archive bytes are SHARED (Arc) and each image is a range slice — the
 /// old per-entry owned copies doubled a 353MB APK's resident footprint
 /// before the first inflate.
+#[derive(Clone)]
 pub struct Image {
     pub label: String,
     pub data: std::sync::Arc<Source>,

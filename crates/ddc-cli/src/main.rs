@@ -2756,6 +2756,11 @@ pub(crate) fn getclass_text_mode(
             return Ok(r);
         }
     }
+    if std::env::var("DDC_NO_CLOSURE").is_err() {
+        if let Some(r) = getclass_text_closure(inputs, fqcn, dex_filters, cure)? {
+            return Ok(r);
+        }
+    }
     getclass_text_full(inputs, fqcn, dex_filters, cure)
 }
 
@@ -2772,6 +2777,283 @@ pub(crate) fn getclass_text_low_memory(
         return Ok(r);
     }
     getclass_text_full(inputs, fqcn, dex_filters, cure)
+}
+
+/// Static dependency closure for one class: parse only the defining image
+/// and images containing classes reachable from the target's supertypes,
+/// signatures and code references, then render. Returns None when the
+/// closure still leaves NameOnly misses (caller falls back to the full pool).
+fn getclass_text_closure(
+    inputs: &[PathBuf],
+    fqcn: &str,
+    dex_filters: &[String],
+    cure: ddc_dec::classdec::CureMode,
+) -> Result<Option<(String, Vec<String>)>> {
+    use std::collections::{BTreeSet, HashMap};
+    // Setup failures fall back to the full path, which owns the canonical
+    // diagnostics (a strict class-name prefix decode must not turn a
+    // readable artifact into a new error).
+    let images = match (|| -> Result<Vec<Image>> {
+        let files = expand_inputs(inputs)?;
+        filter_images_by_dex(collect_images(&files)?, dex_filters)
+    })() {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
+    if images.len() <= 4 {
+        return Ok(None);
+    }
+    let names = match light_image_names(images.clone()) {
+        Ok(n) => n,
+        Err(_) => return Ok(None),
+    };
+    let labels: Vec<String> = images.iter().map(|img| img.label.clone()).collect();
+    let mut slots: Vec<Option<Image>> = images.into_iter().map(Some).collect();
+    let internal = fqcn.replace('.', "/");
+    let mut name_to_image: HashMap<&str, usize> = HashMap::new();
+    for (i, ns) in names.iter().enumerate() {
+        for n in ns {
+            name_to_image.entry(n.as_str()).or_insert(i);
+        }
+    }
+    let defining: Vec<usize> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, ns)| ns.iter().any(|n| n == &internal))
+        .map(|(i, _)| i)
+        .collect();
+    if defining.is_empty() {
+        return Ok(None);
+    }
+    let defining_names: Vec<String> = defining
+        .iter()
+        .map(|&i| {
+            labels[i]
+                .rsplit_once('!')
+                .map(|(_, e)| e.to_string())
+                .unwrap_or_else(|| labels[i].clone())
+        })
+        .collect();
+
+    let mut parsed: Vec<Option<std::sync::Arc<DexFile>>> = (0..slots.len()).map(|_| None).collect();
+    for &i in &defining {
+        let Ok(dex) = parse_closure_image(&mut slots, i) else {
+            return Ok(None);
+        };
+        parsed[i] = Some(std::sync::Arc::new(dex));
+    }
+    // Direct closure: the target class's supertypes/signatures/code refs.
+    // Referenced classes are parsed for definitions; their code is not
+    // traversed (recursion explodes to most of the APK). A Kotlin facade
+    // part also pulls its public base image.
+    let mut refs: BTreeSet<String> = BTreeSet::new();
+    if let Some(dex) = parsed[defining[0]].as_ref() {
+        closure_class_refs(dex, &internal, &mut refs);
+    }
+    let mut queue: Vec<usize> = Vec::new();
+    for r in &refs {
+        if let Some(&i) = name_to_image.get(r.as_str()) {
+            if parsed[i].is_none() && !queue.contains(&i) {
+                queue.push(i);
+            }
+        }
+        if let Some((base, _)) = r.split_once("__") {
+            if let Some(&i) = name_to_image.get(base) {
+                if parsed[i].is_none() && !queue.contains(&i) {
+                    queue.push(i);
+                }
+            }
+        }
+    }
+    for i in queue {
+        if parsed[i].is_none() {
+            if let Ok(dex) = parse_closure_image(&mut slots, i) {
+                parsed[i] = Some(std::sync::Arc::new(dex));
+            }
+        }
+    }
+
+    // Full-pool registration order: defining images first, then every image
+    // in input order; images outside the closure contribute names only.
+    let mut order: Vec<usize> = Vec::with_capacity(parsed.len());
+    order.extend(defining.iter().copied());
+    for i in 0..parsed.len() {
+        if !defining.contains(&i) {
+            order.push(i);
+        }
+    }
+
+    // Render; if a definition is still missing, parse its image and retry.
+    // Three rounds cover annotation/metadata-only references; otherwise the
+    // caller falls back to the full pool.
+    for round in 0..=2 {
+        let mut pool = DexPool::new();
+        for &i in &order {
+            if let Some(dex) = &parsed[i] {
+                let idx = pool.add_dex_lazy_arc(dex.clone());
+                pool.set_dex_label(idx, labels[i].clone());
+            } else {
+                pool.add_names(names[i].iter().cloned());
+            }
+        }
+        pool.set_facade_skip_unparsed();
+        let pool = std::sync::Arc::new(pool);
+        let Some(pc) = pool.get(&internal) else {
+            return Ok(None);
+        };
+        ddc_dec::install_case_renames(&pool);
+        let pending: std::sync::Mutex<Vec<ddc_dec::classdec::PendingMonitor>> =
+            std::sync::Mutex::new(Vec::new());
+        let opts = ClassOptions {
+            provenance: true,
+            cure,
+        };
+        let result = ddc_dec::classdec::decompile_class(&pool, pc, &opts, &pending)
+            .map_err(|e| anyhow::anyhow!("{:#}", e));
+        let text = match result {
+            Ok(t) => t,
+            Err(e) => {
+                if format!("{e:#}").contains("deferred to monitored thread") {
+                    let (rx, name, deadline) = pending.into_inner().unwrap().remove(0);
+                    let now = std::time::Instant::now();
+                    let remaining = deadline.saturating_duration_since(now);
+                    rx.recv_timeout(remaining)
+                        .map_err(|_| anyhow::anyhow!("{}: decompile timed out", name))?
+                        .map_err(|e| anyhow::anyhow!("{e}"))?
+                } else {
+                    return Ok(None);
+                }
+            }
+        };
+        if !pool.name_only_missed() {
+            if std::env::var("DDC_STATS").is_ok() {
+                eprintln!(
+                    "[closure] success round {round}: parsed {}/{} images",
+                    parsed.iter().filter(|p| p.is_some()).count(),
+                    parsed.len()
+                );
+            }
+            return Ok(Some((text, defining_names)));
+        }
+        let misses = pool.name_only_misses();
+        if std::env::var("DDC_STATS").is_ok() {
+            eprintln!(
+                "[closure] round {round}: misses {} [{}]",
+                misses.len(),
+                misses.iter().take(8).cloned().collect::<Vec<_>>().join(", ")
+            );
+        }
+        if round == 2 {
+            break;
+        }
+        let mut fresh = 0usize;
+        for m in &misses {
+            if let Some(&i) = name_to_image.get(m.as_str()) {
+                if parsed[i].is_none() {
+                    if let Ok(dex) = parse_closure_image(&mut slots, i) {
+                        parsed[i] = Some(std::sync::Arc::new(dex));
+                        fresh += 1;
+                    }
+                }
+            }
+        }
+        if fresh == 0 {
+            break;
+        }
+    }
+    Ok(None)
+}
+
+fn parse_closure_image(slots: &mut [Option<Image>], i: usize) -> Result<DexFile> {
+    let Some(img) = slots.get_mut(i).and_then(|s| s.take()) else {
+        anyhow::bail!("image already consumed");
+    };
+    let raw = match img.method {
+        ZipMethod::Stored => img.data.bytes()[img.range].to_vec(),
+        ZipMethod::Deflate => {
+            crate::inflate_hint(img.data.bytes()[img.range].as_ref(), img.usize_hint)?
+        }
+    };
+    DexFile::parse(raw).map_err(|e| anyhow::anyhow!(e))
+}
+
+fn closure_type(dex: &DexFile, idx: u32) -> Option<String> {
+    let s = dex.type_name(idx);
+    let s = s.trim_start_matches('[');
+    let s = s.strip_prefix('L')?.strip_suffix(';')?;
+    Some(s.to_string())
+}
+
+fn closure_add_type(dex: &DexFile, idx: u32, out: &mut std::collections::BTreeSet<String>) {
+    if let Some(name) = closure_type(dex, idx) {
+        out.insert(name);
+    }
+}
+
+fn closure_add_method(
+    dex: &DexFile,
+    idx: u32,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    let m = dex.method(idx);
+    closure_add_type(dex, m.class_idx, out);
+    let p = dex.proto(m.proto_idx);
+    closure_add_type(dex, p.return_type_idx, out);
+    for &t in dex.proto_params(m.proto_idx) {
+        closure_add_type(dex, t, out);
+    }
+}
+
+fn closure_add_field(
+    dex: &DexFile,
+    idx: u32,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    let f = dex.field(idx);
+    closure_add_type(dex, f.class_idx, out);
+    closure_add_type(dex, f.type_idx, out);
+}
+
+fn closure_u16(bytes: &[u8], pc: usize) -> u32 {
+    let o = 2 * pc;
+    if o + 1 < bytes.len() {
+        u16::from_le_bytes([bytes[o], bytes[o + 1]]) as u32
+    } else {
+        0
+    }
+}
+
+/// One class's static dependency edge set: supertypes, field/method
+/// signatures, and type/field/method references in code.
+fn closure_class_refs(dex: &DexFile, cls: &str, out: &mut std::collections::BTreeSet<String>) {
+    let Some(cd) = dex.class_defs.iter().find(|cd| dex.class_name(cd.class_idx) == cls) else {
+        return;
+    };
+    if cd.superclass_idx != ddc_dex::NO_INDEX {
+        closure_add_type(dex, cd.superclass_idx, out);
+    }
+    for t in dex.interfaces_of(cd) {
+        closure_add_type(dex, t, out);
+    }
+    let data = dex.class_data(cd);
+    for f in data.static_fields.iter().chain(data.instance_fields.iter()) {
+        closure_add_field(dex, f.field_idx, out);
+    }
+    for m in data.direct_methods.iter().chain(data.virtual_methods.iter()) {
+        closure_add_method(dex, m.method_idx, out);
+        let Some(code) = dex.code_insns_bytes_at(m.code_off) else {
+            continue;
+        };
+        ddc_dex::insn::scan_instructions(code, &mut |op, pc, bytes| {
+            let arg = closure_u16(bytes, pc + 1);
+            match op {
+                0x1c | 0x1f | 0x20 | 0x22..=0x25 => closure_add_type(dex, arg, out),
+                0x52..=0x6d => closure_add_field(dex, arg, out),
+                0x6e..=0x72 | 0x74..=0x78 => closure_add_method(dex, arg, out),
+                _ => {}
+            }
+        });
+    }
 }
 
 fn getclass_text_full(
@@ -4745,6 +5027,7 @@ fn source_path(out: &Path, internal: &str) -> PathBuf {
 // Minimal ZIP reader (stored + deflate), enough for APK/JAR class extraction.
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy)]
 pub(crate) enum ZipMethod {
     Stored,
     Deflate,

@@ -252,6 +252,9 @@ pub struct DexPool {
     /// Every NameOnly class the renderer asked for (drives on-demand image
     /// loading in the two-tier path; the first also serves diagnostics).
     name_only_miss: std::sync::Mutex<Vec<String>>,
+    /// Static-closure pools: facade analysis skips unparsed NameOnly classes
+    /// instead of recording misses (unrelated facades must not force images).
+    facade_skip_unparsed: std::sync::atomic::AtomicBool,
     /// Synthetic-static accessor code snapshots keyed by (dex_idx,
     /// code_off). `inline_accessors` reads accessor bodies ACROSS images
     /// during worker runs; image retirement can release those bytes
@@ -326,6 +329,7 @@ impl DexPool {
             ref_caches: Vec::new(),
             name_only_missed: std::sync::atomic::AtomicBool::new(false),
             name_only_miss: std::sync::Mutex::new(Vec::new()),
+            facade_skip_unparsed: std::sync::atomic::AtomicBool::new(false),
             accessor_code: std::sync::OnceLock::new(),
             pkg_simples: std::sync::OnceLock::new(),
             root_segs: std::sync::OnceLock::new(),
@@ -571,6 +575,26 @@ impl DexPool {
         self.get_inner(internal, None)
     }
 
+    /// Skip unparsed NameOnly classes during Kotlin facade analysis.
+    pub fn set_facade_skip_unparsed(&self) {
+        self.facade_skip_unparsed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn facade_get(&self, name: &str) -> Option<&PoolClass> {
+        if self
+            .facade_skip_unparsed
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            match self.classes.get(name)? {
+                ClassEntry::NameOnly => None,
+                _ => self.get_inner(name, None),
+            }
+        } else {
+            self.get(name)
+        }
+    }
+
     /// Clear the NameOnly-materialization marker (call before rendering).
     pub fn clear_name_only_miss(&self) {
         self.name_only_missed
@@ -740,7 +764,7 @@ impl DexPool {
                 if base.is_empty() {
                     continue;
                 }
-                let Some(basec) = self.get(base) else {
+                let Some(basec) = self.facade_get(base) else {
                     continue;
                 };
                 if basec.access & crate::access::ACC_PUBLIC == 0 {
@@ -759,7 +783,7 @@ impl DexPool {
                         break;
                     }
                     hops += 1;
-                    cur = self.get(&c).and_then(|cc| cc.super_name.clone());
+                    cur = self.facade_get(&c).and_then(|cc| cc.super_name.clone());
                 }
                 // ...OR cover the part's static members: the Kotlin
                 // compiler MERGES every part's statics into the public
@@ -785,7 +809,7 @@ impl DexPool {
                 // desc) granularity then: covered members rewrite, the
                 // rest keep the part owner (a latent error either way —
                 // Java cannot access the package-private part).
-                let Some(part) = self.get(name) else {
+                let Some(part) = self.facade_get(name) else {
                     continue;
                 };
                 let base_methods: jdc_core::FxHashSet<(&str, &str)> = basec
