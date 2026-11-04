@@ -3,7 +3,7 @@
 [English](../cli.md) | [简体中文]
 
 `ddc --help` 的全部内容，外加更详细的说明：调用模式、每个选项的语义、
-每个子命令的输出格式与行为。`--help` 是速查卡，这里是手册。
+每个子命令的输出格式与行为。`--help` 是速查卡，这里是手册。页末附有当前二进制的完整 help 输出和每个子命令的执行示例。
 
 四种调用形态：
 
@@ -284,3 +284,1002 @@ ddc 开箱即用地把 IntDef/LongDef 字面量实参按常量名渲染
 用法错误（缺参数、未知选项、`--dex` 传错）只输出错误信息一行，退出
 `2`。查询未命中（类/方法/条目找不到）同样是 `2`，但错误里带具体
 信息 —— `getmethod` 列出可用方法名，`--dex` 列出可用镜像名。
+
+## 完整 help 输出
+
+以下内容采集自 ddc 0.1.35；可用 `DDC_LANG=zh ddc --help` / `DDC_LANG=zh ddc help <命令>` 重新生成。
+
+### 主命令
+
+```text
+ddc 0.1.35 — DEX → Java 反编译器
+https://github.com/ejfkdev/ddc （MIT 许可）
+
+用法：
+  ddc [选项] <输入>... [输出]           全量反编译
+  ddc <子命令> [参数...]                元数据查询，不做全量反编译
+  ddc serve [--addr 主机:端口]          HTTP REST + OpenAPI + MCP 端点
+  ddc http  [--addr 主机:端口]          仅 HTTP REST + OpenAPI
+  ddc mcp stdio|http                    MCP 工具服务器（10 个查询工具）
+  ddc help [子命令]                     本帮助，或单个子命令的说明
+  ddc version | -h | -V
+
+语言：DDC_LANG=zh|en 强制指定；否则按环境变量自动判定
+（Windows：系统界面语言）。
+
+Android DEX 镜像反编译器：支持版本 035-041、多 dex APK、
+XAPK/APKS/APKM 容器、invoke-custom。15 个子命令在不全量反编译的
+前提下回答元数据查询（字符串、交叉引用、继承谱、单方法反汇编）。
+
+输入：.dex 文件、.apk/.jar/.zip 归档（classes.dex、classes2.dex、…）、
+.xapk/.apks/.apkm 容器（一 zip 的 APK，每个内层 APK 的 dex 都并入池，
+base 优先）或目录（递归扫描）。多个输入合并为一个类池（重名类去重，
+首个定义生效）。
+
+输出（最后一个位置参数或 -o）：
+  <目录>        输出根目录，保留包结构
+  <文件>.java   单类（单类输入或 -c）
+  -             stdout，类之间以 `// ===== class =====` 分隔
+  默认          输入旁的 <输入名>-out/
+
+选项：
+  -o, --output <路径>  输出位置（目录 / 文件.java / -）
+  -c, --class FQCN     只反编译该类（点分/斜杠均可；嵌套/匿名/局部类一并输出）
+  -l, --list           列出类名后退出
+  -t, --threads <n>    并行 worker 数（默认 CPU 数减写盘线程池；
+                       stdout 模式强制单线程保证池序）
+  --no-comments        省略出处注释头
+  --fast               跳过代码简化 pass（仅保留格式归一）——大 APK
+                       耗时约减半
+  --symbols <目录>     IntDef 符号表（默认内置 android-37；传入 SDK
+                       平台目录可重建：android.jar + data/annotations.zip）
+  -v, --verbose        stderr 输出逐 dex 统计与慢类
+  -h, --help           打印本帮助
+  -V, --version        打印名称、版本与主页
+
+子命令 —— `ddc help <子命令>`（或 `ddc <子命令> --help`）给出每个命令
+自己的参数、选项与示例。读取 dex 镜像的子命令均支持 -d/--dex NAME（可重复，
+条目名子串）缩小镜像范围。
+
+  概览：
+    info <输入>                     App 上下文 + 逐镜像计数
+    listclasses <输入> [模式]       带计数的前缀目录（--full = 全量平铺）
+    manifest <apk> [--component C]  AndroidManifest.xml → 文本 XML
+    mainactivity <apk>              包名 + 启动 Activity
+    res <apk> [条目] [-o 文件]      归档条目清单；输出单个内容
+
+  检索：
+    strings <输入> [-f 文本] [--with-locations]
+                                    字符串表及引用方法
+    findrefs <输入> string|type|class|method|field 名字 [--class FQCN]
+                                    对查询目标的交叉引用
+    callers <输入> 名字 [FQCN]      调用该名字方法的所有方法
+    members <输入> [名字] [--class FQCN] [--method|--field]
+                                    方法/字段名检索
+
+  结构：
+    hierarchy <输入> FQCN           类的超类/子类谱系
+    largest <输入> [-n N]           按指令数排序的前 N 个方法
+    disasm <输入> FQCN[.方法]       原始字节码（操作码 + pc）
+
+  定点反编译：
+    getclass <输入> FQCN [--fast] [-o 文件]  单类（含嵌套）
+    getmethod <输入> FQCN.方法      单方法，含全部重载
+    pkg <输入> com.foo [-o 目录]    单个包（含子包）；--app 取 manifest 包名
+
+输出格式 —— 有结构化报告的查询命令都接受 --format（res 与 largest 仅输出文本）：
+  auto（默认）     stdout 是终端时输出表格，被管道/程序调用时输出文本
+  text             脚本一直在解析的稳定列格式
+  table            对齐表格 + 表头分隔线（xyz-rust 渲染器）
+  markdown | md    管道表格 / 源码围栏代码块
+  json | jsonl     HTTP 与 MCP 前端服务的同构类型数据
+
+HTTP 与 MCP（内置，基于 github.com/ejfkdev/xyz-rust）：
+  ddc serve --addr :8080     一个进程、一个端口服务三个前端：10 条
+                             REST 路由、GET /openapi.json、GET
+                             /healthz，以及流式 MCP 端点 /mcp —— 把
+                             MCP 客户端指向 http://127.0.0.1:8080/mcp
+  ddc mcp stdio              走 stdin/stdout 的 MCP，不占网络 —— Agent
+                             的子进程（10 个工具含输入/输出 schema：
+                             ddc.getclass、ddc.findrefs、…）
+  ddc mcp http               纯 MCP 流式服务器（默认仅回环 Host）；
+                             serve 的 /mcp 是同一协议
+  ddc http --addr :8080      仅 REST + OpenAPI，不挂 /mcp 端点
+  `ddc help serve` / `ddc help mcp` 给出全部旗标与端点说明。
+
+退出码：0 成功；1 部分类失败；2 用法错误。
+
+示例：
+  # 全量反编译
+  ddc app.apk                          # → apk 旁的 app-out/
+  ddc app.apk src/                     # 位置参数输出目录
+  ddc app.apk -o - | less              # 全部输出到 stdout
+  ddc base.apk patch.dex -o merged/    # 分体输入合并一个池
+
+  # 单类 / 单方法
+  ddc app.apk -c com.example.Foo
+  ddc getclass app.apk com.example.Foo -o Foo.java --dex classes3
+  ddc getmethod app.apk com.example.Foo.toString
+
+  # 检索
+  ddc findrefs app.apk string api_key
+  ddc findrefs app.apk method onCreate --class android/app/Activity
+  ddc strings app.apk -f token --with-locations
+  ddc callers app.apk sendMessage
+
+  # 反编译前先做概览
+  ddc mainactivity app.apk
+  ddc manifest app.apk --component launcher
+  ddc hierarchy app.apk androidx.fragment.app.FragmentActivity
+  ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
+```
+
+### `info`
+
+```text
+ddc info — App 上下文与逐镜像统计
+
+用法： ddc info <输入> [选项]
+
+选项：
+  -d, --dex NAME  限定镜像范围：条目名包含 NAME（可重复）
+  -h, --help      打印本帮助
+
+示例：
+  ddc info app.apk
+      App 上下文与逐镜像类/方法/字段表
+  ddc info app.apk -d classes2
+      只统计匹配的镜像
+```
+
+### `listclasses`
+
+```text
+ddc listclasses — 带计数的前缀目录视图（--full：全量平铺类名）
+
+用法： ddc listclasses <输入> [PATTERN] [选项]
+
+参数：
+  PATTERN  大小写不敏感的子串过滤
+
+选项：
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --full             完整的原始类名（默认：压缩前缀目录）
+  --prefix P         段级精确范围（a.b 匹配 a.b 与 a.b.*），用于展开目录行
+  --depth N          在范围下恰好 N 段处聚合
+  --sort name|count  行序（count = 大类优先）
+  --samples N        每个目录行附最多 N 个示例类名
+  --limit N          最多返回 N 行/类（0 = 不限）；JSON 附带 total/next_offset
+  --offset M         跳过 M 行/类——从上一页结束处继续
+  -h, --help         打印本帮助
+
+示例：
+  ddc listclasses app.apk
+      一屏看结构，而不是 20 万行
+  ddc listclasses app.apk --sort count
+      最大的包优先
+  ddc listclasses app.apk --prefix com.example --depth 1
+      下一级内容
+  ddc listclasses app.apk | grep '/ ('
+      只保留目录行
+  ddc listclasses app.apk --full | wc -l
+      平铺列表：类总数
+  ddc listclasses app.apk --limit 20 --offset 40 --format json
+      带 next_offset 的翻页
+```
+
+### `manifest`
+
+```text
+ddc manifest — 将 AndroidManifest.xml 解码为文本 XML
+
+用法： ddc manifest <APK> [选项]
+
+选项：
+  -c, --component KIND  只输出一组组件（launcher|activity|service|receiver|provider|permission|activity-alias|application；接受复数别名）
+  -o, --output FILE     结果写入 FILE 而非 stdout
+  -h, --help            打印本帮助
+
+示例：
+  ddc manifest app.apk
+      完整 manifest 文本 XML
+  ddc manifest app.apk --component launcher
+      启动 Activity 的 intent-filter
+  ddc manifest app.apk -o manifest.xml
+      保存到文件
+```
+
+### `mainactivity`
+
+```text
+ddc mainactivity — 输出包名与启动 Activity，并在 dex 中定位验证
+
+用法： ddc mainactivity <APK> [选项]
+
+选项：
+  -d, --dex NAME  限定镜像范围：条目名包含 NAME（可重复）
+  -h, --help      打印本帮助
+
+示例：
+  ddc mainactivity app.apk
+      包名 + 启动 Activity（dex 内定位验证）
+```
+
+### `res`
+
+```text
+ddc res — 列出归档条目，或输出单个条目的内容
+
+用法： ddc res <APK> [ENTRY] [选项]
+
+参数：
+  ENTRY  要输出的归档条目；省略时列出全部条目
+
+选项：
+  -o, --output FILE  写入条目的原始字节（二进制 XML 保持原样；stdout 输出为解码文本）
+  --full             完整的原始行（默认：压缩前缀目录）
+  --prefix P         段级精确范围，用于展开目录行
+  --depth N          在范围下恰好 N 段处聚合
+  --sort name|count  行序（count = 大类优先）
+  --samples N        每个目录行附最多 N 个示例叶子名
+  --limit N          最多 N 行（0 = 不限）
+  --offset M         跳过 M 行——从上一页结束处继续
+  -h, --help         打印本帮助
+
+示例：
+  ddc res app.apk
+      归档目录摘要
+  ddc res app.apk --full | head -40
+      平铺条目列表
+  ddc res app.apk --prefix res/drawable
+      单个目录的文件
+  ddc res app.apk AndroidManifest.xml
+      输出单个条目（二进制 XML 解码为文本）
+  ddc res app.apk resources.arsc -o arsc.bin
+      保存条目的原始字节
+```
+
+### `strings`
+
+```text
+ddc strings — 字符串表及引用各字符串的方法
+
+用法： ddc strings <输入> [选项]
+
+选项：
+  -f, --filter TEXT  只保留包含 TEXT 的字符串（大小写不敏感）
+  --with-locations   将每个字符串映射到引用它的方法
+  --summary          按引用方类/包分组统计匹配的引用位点（默认视图是字符串表）
+  --full             完整的原始字符串表（默认视图）；优先于 --summary
+  --prefix P         配合 --summary：引用方类的段级精确范围
+  --depth N          配合 --summary：在范围下恰好 N 段处聚合
+  --sort name|count  配合 --summary：行序
+  --samples N        配合 --summary：每个目录行附示例类名
+  --limit N          最多 N 行/字符串（0 = 不限）；JSON 附带 total/next_offset
+  --offset M         跳过 M 行/字符串——从上一页结束处继续
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help         打印本帮助
+
+示例：
+  ddc strings app.apk -f token
+      包含 "token" 的字符串
+  ddc strings app.apk -f api_key --with-locations
+      每个命中映射到引用它的方法
+  ddc strings app.apk --limit 50 --offset 100 --format json
+      翻页字符串表
+  ddc strings app.apk -f http --summary --sort count
+      哪些包在用 URL（引用位点计数）
+  ddc strings app.apk -f api_key --summary --samples 2
+      目录行附示例引用类
+```
+
+### `findrefs`
+
+```text
+ddc findrefs — 交叉引用：引用查询目标的全部方法位点
+
+用法： ddc findrefs <输入> <KIND> <QUERY> [选项]
+
+参数：
+  KIND   string | type | class | method | field（class 即 type）
+  QUERY  要解析的字符串/类型/成员名
+
+选项：
+  -C, --class FQCN   method/field 查询的所属类（默认精确，--fuzzy-class 改模糊）
+  --fuzzy-class      所属类模糊匹配
+  --full             完整的原始行（默认：压缩前缀目录）
+  --prefix P         段级精确范围，用于展开目录行
+  --depth N          在范围下恰好 N 段处聚合
+  --sort name|count  行序（count = 大类优先）
+  --samples N        每个目录行附最多 N 个示例叶子名
+  --limit N          最多 N 行（0 = 不限）
+  --offset M         跳过 M 行——从上一页结束处继续
+  -o, --output FILE  结果写入 FILE 而非 stdout
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help         打印本帮助
+
+示例：
+  ddc findrefs app.apk string api_key
+      哪些包在用 "api_key"（带计数的目录）
+  ddc findrefs app.apk string api_key --full
+      全部命中行
+  ddc findrefs app.apk string http --sort count
+      引用最多的包优先
+  ddc findrefs app.apk class okhttp3.OkHttpClient
+      类在代码中的使用（new/check-cast/instance-of）
+  ddc findrefs app.apk method onCreate --class android/app/Activity
+      Activity.onCreate 的调用点
+  ddc findrefs app.apk field CREATOR
+      名为 CREATOR 的字段读写
+```
+
+### `callers`
+
+```text
+ddc callers — 按方法名检索其调用方
+
+用法： ddc callers <输入> <NAME> [FQCN] [选项]
+
+参数：
+  NAME  要检索的方法名
+  FQCN  可选的所属类，用于缩小范围
+
+选项：
+  --full             完整的原始行（默认：压缩前缀目录）
+  --prefix P         段级精确范围，用于展开目录行
+  --depth N          在范围下恰好 N 段处聚合
+  --sort name|count  行序（count = 大类优先）
+  --samples N        每个目录行附最多 N 个示例叶子名
+  --limit N          最多 N 行（0 = 不限）
+  --offset M         跳过 M 行——从上一页结束处继续
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help         打印本帮助
+
+示例：
+  ddc callers app.apk sendMessage
+      哪些包在调用 sendMessage（目录）
+  ddc callers app.apk sendMessage --full
+      全部调用位点行
+  ddc callers app.apk onCreate android/app/Activity
+      把被调方法限定到一个所属类
+```
+
+### `members`
+
+```text
+ddc members — 方法与字段名检索
+
+用法： ddc members <输入> [NAME] [选项]
+
+参数：
+  NAME  要检索的名字子串
+
+选项：
+  -C, --class FQCN   限定单个类（默认精确，--fuzzy-class 改模糊）
+  --fuzzy-class      所属类模糊匹配
+  --method           仅方法
+  --field            仅字段
+  --full             完整的原始行（默认：压缩前缀目录）
+  --prefix P         段级精确范围，用于展开目录行
+  --depth N          在范围下恰好 N 段处聚合
+  --sort name|count  行序（count = 大类优先）
+  --samples N        每个目录行附最多 N 个示例叶子名
+  --limit N          最多 N 行（0 = 不限）
+  --offset M         跳过 M 行——从上一页结束处继续
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help         打印本帮助
+
+示例：
+  ddc members app.apk
+      按类/包统计成员数（目录）
+  ddc members app.apk token
+      名字含 "token" 的方法/字段
+  ddc members app.apk --class com.example.Foo
+      单个类的全部成员（摘要）
+  ddc members app.apk --class com.example.Foo --full
+      单个类的全部成员行
+  ddc members app.apk onCreate --method
+      只看方法名
+```
+
+### `hierarchy`
+
+```text
+ddc hierarchy — 一个类的超类（extends/implements）与子类谱系
+
+用法： ddc hierarchy <输入> <FQCN> [选项]
+
+参数：
+  FQCN  类名，点分/斜杠均可
+
+选项：
+  --full             完整的原始行（默认：压缩前缀目录）
+  --prefix P         段级精确范围，用于展开目录行
+  --depth N          在范围下恰好 N 段处聚合
+  --sort name|count  行序（count = 大类优先）
+  --samples N        每个目录行附最多 N 个示例叶子名
+  --limit N          最多 N 行（0 = 不限）
+  --offset M         跳过 M 行——从上一页结束处继续
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help         打印本帮助
+
+示例：
+  ddc hierarchy app.apk java.lang.Object
+      按包统计子类（带计数的目录）
+  ddc hierarchy app.apk java.lang.Object --sort count
+      大包优先
+  ddc hierarchy app.apk java.lang.Object --full
+      全部关系行
+  ddc hierarchy app.apk androidx.fragment.app.FragmentActivity
+      其超类与全部子类
+```
+
+### `largest`
+
+```text
+ddc largest — 按指令数排序的最大方法
+
+用法： ddc largest <输入> [选项]
+
+选项：
+  -n N            输出前 N 个方法（默认 20）
+  -d, --dex NAME  限定镜像范围：条目名包含 NAME（可重复）
+  -h, --help      打印本帮助
+
+示例：
+  ddc largest app.apk
+      按指令数的前 20 个方法（默认）
+  ddc largest app.apk -n 50
+      前 50 个
+```
+
+### `disasm`
+
+```text
+ddc disasm — 一个类或单个方法的原始字节码清单
+
+用法： ddc disasm <输入> <FQCN>[.<方法>] [选项]
+
+参数：
+  FQCN[.<方法>[(params)ret]]      类名；只写方法名列出全部重载，写完整描述符精确指定一个
+
+选项：
+  -d, --dex NAME  限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT    auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help      打印本帮助
+
+示例：
+  ddc disasm app.apk com.example.Foo
+      类内每个方法的字节码
+  ddc disasm app.apk com.example.Foo.toString
+      单个方法名，含全部重载
+  ddc disasm app.apk 'com.example.Foo.parse(Ljava/lang/String;)V'
+      精确指定一个重载
+```
+
+### `getclass`
+
+```text
+ddc getclass — 反编译单个类，嵌套类一并输出
+
+用法： ddc getclass <输入>... <FQCN> [选项]
+
+参数：
+  <输入>...      一个或多个输入，合并为一个类池
+  FQCN         类名，点分/斜杠均可
+
+选项：
+  -o, --output FILE  结果写入 FILE 而非 stdout
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  --fast             跳过代码简化 pass（仅格式化）
+  --low-memory       两级按需加载：从定义镜像开始，渲染器请求时再加载（默认：依赖闭包）
+  -h, --help         打印本帮助
+
+示例：
+  ddc getclass app.apk com.example.Foo
+      单类连同嵌套类，输出到 stdout
+  ddc getclass app.apk com.example.Foo -o Foo.java --dex classes3
+      指定镜像并写入文件
+  ddc getclass base.apk patch.dex com.example.Foo
+      多输入合并为一个池
+  ddc getclass app.apk com.example.Foo --low-memory
+      两级按需加载（多 dex 省内存）
+```
+
+### `getmethod`
+
+```text
+ddc getmethod — 反编译单个方法，含其全部重载
+
+用法： ddc getmethod <输入> <FQCN>.<方法> [选项]
+
+参数：
+  FQCN.<方法>      点分类名与方法名
+
+选项：
+  -o, --output FILE  结果写入 FILE 而非 stdout
+  --fast             跳过代码简化 pass（仅保留格式归一）
+  -d, --dex NAME     限定镜像范围：条目名包含 NAME（可重复）
+  --format FMT       auto | text | table | markdown | md | json | jsonl（默认 auto：终端表格、管道文本）
+  -h, --help         打印本帮助
+
+示例：
+  ddc getmethod app.apk com.example.Foo.toString
+      单个方法，含全部重载
+  ddc getmethod app.apk com.example.Foo.toString -o toString.java
+      保存到文件
+```
+
+### `pkg`
+
+```text
+ddc pkg — 反编译一个包下的全部类，子包一并包含
+
+用法： ddc pkg <输入> <包名> [选项]
+
+参数：
+  包名      包名（与 --app 同用时省略）
+
+选项：
+  --app             改用 AndroidManifest.xml 中的包名
+  -o, --output DIR  输出根目录（默认：<包名>-out/）
+  -t, --threads N   并行 worker 数（默认 CPU 数）
+  -d, --dex NAME    限定镜像范围：条目名包含 NAME（可重复）
+  -h, --help        打印本帮助
+
+示例：
+  ddc pkg app.apk com.example.app
+      该包与其下所有子包（含 a.b.c.d.e）
+  ddc pkg app.apk com.example.app -o src/
+      自选输出目录
+  ddc pkg app.apk --app -o own/
+      只反编译 App 自身包，跳过库
+```
+
+### `serve`
+
+```text
+ddc serve — 同一端口的 HTTP REST + OpenAPI + MCP
+
+用法：ddc serve [旗标]
+
+启动一个网络进程，同一地址上服务三个前端：
+  REST              10 个查询命令即路由
+                    （GET/POST /info、/classes、/class、/method、
+                    /findrefs、/strings、/hierarchy、/disasm、
+                    /manifest、/mainactivity；GET 绑 query 参数，
+                    POST 还接受 JSON body；未知 query 参数默认 400）
+  GET /openapi.json 上述路由的 OpenAPI 3 文档
+  GET /healthz      存活探针
+  /mcp              流式 MCP 端点 —— 把 MCP 客户端指向
+                    http://<地址>/mcp（10 个工具，含输入/输出
+                    schema，如 ddc.getclass）
+
+旗标：
+  --addr 主机:端口      监听地址（默认 :8080）
+  --bearer 令牌[,令牌]  REST 与 /mcp 要求 Authorization: Bearer
+                        <令牌>（留空 = 不鉴权）
+  --timeout 45s         每请求超时（0 = 无）
+  --cors 来源[,来源]    允许的 CORS 来源
+  --tls-cert F --tls-key F  切换 HTTPS（两者都要）
+  --xyz.allow-unknown-query  接受未知 query 参数（默认 400 拒绝）
+  --default k=v         通道默认值，填入请求缺失的键（可重复；
+                        未识别的 --key=value 是它的简写）
+
+示例：
+  ddc serve --addr 127.0.0.1:8080
+  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'
+  curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \
+      -d '{"input":"app.apk","class":"com.example.Foo"}'
+
+  # 凭据 + TLS + CORS，一个进程：
+  ddc serve --addr 0.0.0.0:8443 --bearer tok1,tok2 \
+      --tls-cert cert.pem --tls-key key.pem --cors 'https://app.example.com'
+  curl -H 'Authorization: Bearer tok1' \
+      'https://host:8443/findrefs?input=app.apk&kind=string&query=token'
+  curl -H 'Authorization: Bearer tok2' 'https://host:8443/openapi.json'
+  # （缺凭据头 → HTTP 401，JSON 错误体）
+
+  # MCP 客户端（Claude Desktop / 任意 MCP 客户端）：
+  #   url: http://127.0.0.1:8080/mcp
+  #   （带 --bearer 时：同一 URL + 'Authorization: Bearer <令牌>' 头）
+```
+
+### `http`
+
+```text
+ddc http — 仅 HTTP REST + OpenAPI（无 MCP 端点）
+
+用法：ddc http [旗标]
+
+serve 的纯 REST 形态：一个端口上挂 10 条查询路由（GET+POST，GET
+绑 query 参数，POST 还接受 JSON body）与 GET /openapi.json；
+/mcp 不挂载（MCP 客户端要端点用 serve；完全不
+要 REST 用 mcp）。
+
+旗标：与 serve 相同 —— --addr 主机:端口（默认 :8080）、
+  --bearer 令牌[,令牌]、--timeout 45s、--cors 来源[,来源]、
+  --tls-cert F --tls-key F、--default k=v。
+
+示例：
+  ddc http --addr 127.0.0.1:8080
+  curl '127.0.0.1:8080/class?input=app.apk&class=com.example.Foo'
+  curl -X POST '127.0.0.1:8080/class' -H 'Content-Type: application/json' \
+      -d '{"input":"app.apk","class":"com.example.Foo"}'
+  curl '127.0.0.1:8080/openapi.json' | python3 -m json.tool | head
+
+  # 凭据 + TLS：
+  ddc http --addr 0.0.0.0:8443 --bearer tok1 \
+      --tls-cert cert.pem --tls-key key.pem
+  curl -H 'Authorization: Bearer tok1' \
+      'https://host:8443/strings?input=app.apk&filter=token'
+```
+
+### `mcp`
+
+```text
+ddc mcp — MCP 工具服务器（无 REST 路由）
+
+用法：ddc mcp stdio|http [旗标]
+
+  stdio   走 stdin/stdout 的 MCP —— 作为 Agent 的命令运行，不占
+          网络（Claude Desktop 与本地 Agent 的接入方式）
+  http    独立地址的流式 HTTP MCP 服务器（SDK 默认仅允许回环
+          Host；serve 的 /mcp 是同一协议共享端口形态）
+
+旗标（http；stdio 忽略地址类旗标）：
+  --addr 主机:端口      监听地址（默认 :8080）
+  --bearer 令牌[,令牌]  要求的 Authorization 头
+  --versions A,B        锁定 MCP 协议修订（2024-11-05、
+                        2025-03-26、2025-06-18、2025-11-25、
+                        2026-07-28）
+  --stateless           流式 HTTP 无状态模式（2026-07-28 的免
+                        握手形态，SEP-2567）
+  --json-response       优先返回 JSON（需配合 --stateless；
+                        旧版会话模式始终走 SSE）
+  --session-timeout 30m 会话保活窗口
+  --default k=v         工具缺失键的通道默认值
+  --name N              握手中上报的服务器名
+  --server-version V    握手中上报的服务器版本
+
+每个命令成为一个工具：ddc.getclass、ddc.findrefs、… —— tools/list
+携带 inputSchema 与 outputSchema。
+
+示例：
+  ddc mcp stdio                # Agent 配置：command = ddc,
+                               #                args = ['mcp', 'stdio']
+
+  # Claude Desktop（claude_desktop_config.json）：
+  #   'mcpServers': { 'ddc': { 'command': 'ddc',
+  #                    'args': ['mcp', 'stdio'] } }
+
+  # 带凭据的流式 HTTP + 锁定协议修订：
+  ddc mcp http --addr 127.0.0.1:9300 --bearer tok1 \
+      --versions 2025-06-18,2026-07-28
+
+  # 会话超时 + 握手中的服务器身份：
+  ddc mcp http --addr 127.0.0.1:9300 --session-timeout 30m \
+      --name ddc-tools --server-version 0.1.25
+```
+
+## 执行结果示例
+
+以下示例使用仓库内 `crates/ddc-dec/tests/fixtures/hello.dex`（简称 `hello.dex`）与 reqable 3.2.23（简称 `reqable.apk`）；超过 24 行的输出截断并以 `… (truncated)` 标记。`pkg` 示例写到一个临时输出目录。
+
+### info — 应用上下文与镜像计数
+
+```bash
+$ ddc info hello.dex
+```
+
+```text
+大小          1.3 KB（1284 字节）
+md5         15babc33e49d5a458d83530f843d18f0
+
+        镜像        版本           类          方法         字段         字符串
+     hello       038           2          10          3          27
+合计：1 个镜像，2 个类
+```
+
+### listclasses — 类结构前缀树
+
+```bash
+$ ddc listclasses hello.dex
+```
+
+```text
+Greeter
+Hello
+```
+
+### manifest — AndroidManifest.xml
+
+```bash
+$ ddc manifest reqable.apk
+```
+
+```text
+<manifest versionCode="221" versionName="3.2.23" compileSdkVersion="34" compileSdkVersionCodename="14" package="com.reqable.android" platformBuildVersionCode="34" platformBuildVersionName="14">
+    <uses-sdk minSdkVersion="21" targetSdkVersion="35">
+    </uses-sdk>
+    <uses-permission name="android.permission.INTERNET">
+    </uses-permission>
+    <uses-permission name="android.permission.ACCESS_NETWORK_STATE">
+    </uses-permission>
+    <uses-permission name="android.permission.ACCESS_WIFI_STATE">
+    </uses-permission>
+    <uses-permission name="android.permission.READ_EXTERNAL_STORAGE">
+    </uses-permission>
+    <uses-permission name="android.permission.WRITE_EXTERNAL_STORAGE">
+    </uses-permission>
+    <uses-permission name="android.permission.FOREGROUND_SERVICE">
+    </uses-permission>
+    <uses-permission name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE">
+    </uses-permission>
+    <uses-permission name="android.permission.QUERY_ALL_PACKAGES">
+    </uses-permission>
+    <uses-permission name="com.android.vending.CHECK_LICENSE">
+    </uses-permission>
+    <uses-permission name="android.permission.POST_NOTIFICATIONS">
+    </uses-permission>
+    <queries>
+… (truncated)
+```
+
+### mainactivity — 包名与启动入口
+
+```bash
+$ ddc mainactivity reqable.apk
+```
+
+```text
+包名          com.reqable.android
+类           android.app.Application （Application 类）
+启动入口        com.reqable.android.MainActivity
+dex         reqable-app-android-arm64!classes.dex
+```
+
+### res — 归档条目摘要
+
+```bash
+$ ddc res reqable.apk
+```
+
+```text
+AndroidManifest.xml
+DebugProbesKt.bin
+META-INF/ (38)
+assets/ (125)
+billing.properties
+classes.dex
+firebase-encoders-json.properties
+firebase-encoders-proto.properties
+firebase-encoders.properties
+kotlin/ (7)
+kotlin-tooling-metadata.json
+lib/arm64-v8a/ (12)
+okhttp3/internal/publicsuffix/ (2)
+play-services-ads-identifier.properties
+play-services-auth-api-phone.properties
+play-services-auth-base.properties
+play-services-auth-blockstore.properties
+play-services-auth.properties
+play-services-base.properties
+play-services-basement.properties
+play-services-fido.properties
+play-services-location.properties
+play-services-places-placereport.properties
+play-services-tasks.properties
+… (truncated)
+```
+
+### strings — 字符串表与引用方法
+
+```bash
+$ ddc strings hello.dex -f Hello --with-locations
+```
+
+```text
+dex         字符串    使用者
+hello       "Hello.java"
+hello       "LHello;"
+```
+
+### findrefs — 交叉引用
+
+```bash
+$ ddc findrefs hello.dex string hi --full
+```
+
+```text
+镜像          类型            类 方法 引用
+hello       const-string  Greeter greet()Ljava/lang/String;  "hi "
+```
+
+### callers — 方法调用者
+
+```bash
+$ ddc callers hello.dex greet --full
+```
+
+```text
+镜像          类型            类 方法 引用
+hello       invoke        Hello main([Ljava/lang/String;)V  LGreeter;->greet()Ljava/lang/String;
+```
+
+### members — 成员检索
+
+```bash
+$ ddc members hello.dex --full
+```
+
+```text
+dex         类型      类 成员
+hello       method  Greeter <init>(Ljava/lang/String;)V
+hello       method  Greeter greet()Ljava/lang/String;
+hello       method  Hello <clinit>()V
+hello       method  Hello <init>()V
+hello       method  Hello main([Ljava/lang/String;)V
+hello       method  java/io/PrintStream println(Ljava/lang/String;)V
+hello       method  java/lang/Object <init>()V
+hello       method  java/lang/StringBuilder <init>(Ljava/lang/String;)V
+hello       method  java/lang/StringBuilder append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+hello       method  java/lang/StringBuilder toString()Ljava/lang/String;
+hello       field   Greeter name Ljava/lang/String;
+hello       field   Hello counter I
+hello       field   java/lang/System out Ljava/io/PrintStream;
+```
+
+### hierarchy — 继承谱
+
+```bash
+$ ddc hierarchy hello.dex Hello
+```
+
+```text
+class        Hello
+extends      java.lang.Object
+```
+
+### largest — 最大方法
+
+```bash
+$ ddc largest hello.dex -n 3
+```
+
+```text
+    指令数  dex         类 方法
+     23  hello       Hello main([Ljava/lang/String;)V
+     18  hello       Greeter greet()Ljava/lang/String;
+      6  hello       Greeter <init>(Ljava/lang/String;)V
+```
+
+### disasm — 字节码反汇编
+
+```bash
+$ ddc disasm hello.dex Greeter.greet
+```
+
+```text
+// hello Greeter
+  greet()Ljava/lang/String;:
+    0000: iget v2, v2, field@0 Greeter->name:Ljava/lang/String;
+    0004: new-instance v0, type@6 Ljava/lang/StringBuilder;
+    0008: const-string v1, string@19 "hi "
+    000c: invoke { v0, v1 }, method@7 java/lang/StringBuilder-><init>(Ljava/lang/String;)V
+    0012: invoke { v0, v2 }, method@8 java/lang/StringBuilder->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    0018: move-result-object v2
+    001a: invoke { v2 }, method@9 java/lang/StringBuilder->toString()Ljava/lang/String;
+    0020: move-result-object v2
+    0022: return-object v2
+```
+
+### getclass — 单类反编译
+
+```bash
+$ ddc getclass hello.dex Greeter
+```
+
+```text
+// Decompiled by https://github.com/ejfkdev/ddc 0.1.35
+// From: hello (DEX 038)
+// Source file: Hello.java
+
+class Greeter {
+    private final java.lang.String name;
+    Greeter(java.lang.String str) {
+        super();
+        this.name = str;
+    }
+    java.lang.String greet() {
+        return "hi " + this.name;
+    }
+}
+```
+
+### getmethod — 单方法反编译
+
+```bash
+$ ddc getmethod hello.dex Greeter.greet
+```
+
+```text
+// Decompiled by https://github.com/ejfkdev/ddc 0.1.35
+// From: hello (DEX 038)
+// Source file: Hello.java
+
+java.lang.String greet() {
+    return "hi " + this.name;
+}
+```
+
+### pkg — 整包反编译
+
+```bash
+$ ddc pkg hello.dex . -o pkg-out
+```
+
+```text
+ddc: 2 class(es) under .
+ddc: wrote 2 file(s) to pkg-out
+```
+
+### serve — HTTP REST + OpenAPI + /mcp
+
+```bash
+$ ddc serve --addr 127.0.0.1:18095
+```
+
+```text
+xyz[info]: listening on http://127.0.0.1:18095 (REST + /openapi.json + /mcp)
+```
+
+```bash
+$ curl 'http://127.0.0.1:18095/info?input=hello.dex'
+```
+
+```json
+{
+  "package": "",
+  "size_bytes": 1284,
+  "md5": "15babc33e49d5a458d83530f843d18f0",
+  "images": [
+    {
+      "image": "hello",
+      "dex_version": "038",
+      "classes": 2,
+      "methods": 10,
+      "fields": 3,
+      "strings": 27
+    }
+  ],
+  "total_images": 1,
+  "total_classes": 2
+}
+```
+
+### http — 仅 REST + OpenAPI
+
+```bash
+$ ddc http --addr 127.0.0.1:18096
+```
+
+```text
+xyz[info]: listening on http://127.0.0.1:18096 (REST + /openapi.json)
+```
+
+### mcp stdio — MCP 子进程
+
+```bash
+$ echo '{"jsonrpc":"2.0","id":1,"method":"initialize",...}' | ddc mcp stdio
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"ddc","version":"0.1.35"}}}
+```

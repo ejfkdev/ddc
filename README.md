@@ -17,19 +17,18 @@
 
 `ddc` decompiles Android DEX bytecode back into readable Java — at
 real-world app scale, queryable like a database, and **quality-first**:
-every one of the 909,689 files it emits across seven real-world APKs
-passes `javac`'s parse gate, and every file is simplified by an exact,
-semantic-preserving source pass.
+output is checked with `javac`'s parse gate and a full Android classpath,
+and every file is simplified by an exact, semantic-preserving source pass.
 
 ## Highlights
 
-- **Quality first, not just fast** — all seven benchmark APKs (0.91M
-  files) pass `javac`'s parse gate with **zero syntax errors**, and a
-  full-classpath javac battery independently tracks semantic regressions.
-  Every file also goes through [cure](https://github.com/ejfkdev/cure),
-  an exact semantic-preserving simplification: **−15% output lines** with
-  identical gate results. Case-variant class names never overwrite each
-  other.
+- **Quality first, not just fast** — a `javac` parse gate and a
+  full-classpath battery continuously check the output; every file also
+  goes through [cure](https://github.com/ejfkdev/cure), an exact
+  simplification that cuts **15% of output lines** with identical gate
+  results. The 39-APK validation corpus currently sits at **4,102,811 /
+  4,102,812** files parsing clean (one long-literal caveat, see
+  [validation](docs/validation.md)).
 - **Fast** — a 226 MB / 20-dex APK (weibo, 98k classes) fully decompiles
   in **~19s** (**~9.7s** with `--fast`); Telegram (62 MB) in **~6.4s**
   (**~3.9s**). Pathological classes run on deadline-bounded monitored
@@ -167,7 +166,7 @@ subcommand's output format and behavior — lives in
 ## Performance
 
 Seven real-world APKs, release build, measured after a
-cooldown (Apple Silicon, 6P+12E). The 39-APK validation corpus (4.08M
+cooldown (Apple Silicon, 6P+12E). The 39-APK validation corpus (4.10M
 decompiled files, per-APK wall time / peak RSS / javac parse gate) is
 in [docs/validation.md](docs/validation.md)
 ([中文](docs/zh-CN/validation.md)).
@@ -224,7 +223,7 @@ app's launcher class):
 | [Subcommands](docs/subcommands.md) | the progressive-analysis reference ([中文](docs/zh-CN/subcommands.md)) |
 | [Benchmarks](docs/benchmarks.md) | timings, memory, methodology, ASC comparison ([中文](docs/zh-CN/benchmarks.md)) |
 | [Performance engineering](docs/optimization.md) | 5min → 6s: six rounds, measured dead ends ([中文](docs/zh-CN/optimization.md)) |
-| [Corpus validation](docs/validation.md) | 39 real APKs, 4.08M files, javac parse-clean, bugs found & fixed ([中文](docs/zh-CN/validation.md)) |
+| [Corpus validation](docs/validation.md) | 39 real APKs, 4.10M files, javac parse gate (one long-literal caveat), bugs found & fixed ([中文](docs/zh-CN/validation.md)) |
 
 ## Known limitations
 

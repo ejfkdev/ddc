@@ -16,17 +16,16 @@
 [![WinGet](https://img.shields.io/badge/WinGet-ejfkdev.ddc-0078D4?logo=windows)](https://github.com/microsoft/winget-pkgs/tree/master/manifests/e/ejfkdev/ddc)
 
 `ddc` 把 Android DEX 字节码反编译回可读的 Java —— 真实 App 级别的速度、
-可以像数据库一样查询，并且**质量优先**：七个真实 APK 共 909,689 个
-输出文件全部通过 `javac` 解析闸门，每个文件还经过精确、语义保持的
-源码级简化。
+可以像数据库一样查询，并且**质量优先**：输出经过 `javac` 解析闸门与完整
+Android classpath 检查，每个文件还经过精确、语义保持的源码级简化。
 
 ## 特性
 
-- **质量优先，而不只是快** —— 七个基准 APK（91 万文件）的输出全部通过
-  `javac` 解析闸门，**零语法错误**；带完整 Android classpath 的 javac
-  电池独立跟踪语义回归。默认每个文件还会经过
-  [cure](https://github.com/ejfkdev/cure) 的精确、语义保持源码级简化：
-  **输出行数 −15%**，javac 门结果不变。大小写仅差一位的类名不会互相覆盖。
+- **质量优先，而不只是快** —— `javac` 解析闸门与完整 classpath 电池持续
+  检查输出；每个文件还会经过 [cure](https://github.com/ejfkdev/cure) 的
+  精确简化，**输出行数减少 15%** 且 javac 门结果不变。39-APK 验证语料
+  当前 **4,102,811 / 4,102,812** 个文件通过解析（1 处长整数字面量例外，
+  见[语料验证](docs/zh-CN/validation.md)）。
 - **快** —— 226MB/20 dex 的 weibo（9.8 万个类）全量反编译 **~19s**
   （`--fast` 约 **9.7s**）；62MB 的 Telegram **~6.4s**（`--fast` 约
   **3.9s**）。病态类跑在带截止期的受控线程上，不会拖死整个运行。
@@ -159,7 +158,7 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 ## 性能
 
 七个真实 APK，release 构建，冷机后实测（Apple Silicon 6P+12E）。
-39 个 APK 的验证语料（408 万个反编译文件，每个 APK 的墙钟 /
+39 个 APK 的验证语料（410 万个反编译文件，每个 APK 的墙钟 /
 峰值 RSS / javac 解析门）见
 [docs/zh-CN/validation.md](docs/zh-CN/validation.md)
 （[English](docs/validation.md)）。
@@ -215,7 +214,7 @@ ddc pkg app.apk --app -o own/        # 只反编译 App 自身代码
 | [子命令](docs/zh-CN/subcommands.md) | 渐进式分析完整参考（[EN](docs/subcommands.md)） |
 | [基准](docs/zh-CN/benchmarks.md) | 耗时/内存、方法论、与 ASC 对比（[EN](docs/benchmarks.md)） |
 | [性能工程](docs/zh-CN/optimization.md) | 5 分钟 → 6s：六轮优化与实测排除的捷径（[EN](docs/optimization.md)） |
-| [语料验证](docs/zh-CN/validation.md) | 39 个真实 APK、408 万文件全部 javac 解析零错误，含发现并修复的 bug 清单（[EN](docs/validation.md)） |
+| [语料验证](docs/zh-CN/validation.md) | 39 个真实 APK、410 万文件通过 javac 解析（1 处长整数字面量例外），含发现并修复的 bug 清单（[EN](docs/validation.md)） |
 
 ## 已知限制
 
