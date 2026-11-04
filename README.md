@@ -23,50 +23,34 @@ semantic-preserving source pass.
 
 ## Highlights
 
-- **Quality first, not just fast** — the full output of all seven
-  benchmark APKs (reqable, Telegram, WhatsApp, weibo, weixin, qq, lark —
-  0.91M files) passes `javac`'s parse gate with **zero syntax errors**,
-  and a full-classpath javac battery tracks semantic regressions
-  (**~7,500** ddc-attributable errors across 0.91M files, down from
-  11,345). By default every file then goes through
-  [cure](https://github.com/ejfkdev/cure), an exact semantic-preserving
-  source pass that inlines register-copy chains, folds if/else
-  assignments into ternaries, recovers for-each, and drops dead stores:
-  **−15% output lines** with identical gate results. Case-variant name
-  pairs (`X/Cua` vs `X/cua`) keep separate files instead of the last one
-  silently overwriting.
-- **Fast** — a 226 MB / 20-dex APK (weibo, 98k classes) fully
-  decompiles in **~19s** at high quality (**~9.7s** with `--fast`), a
-  62 MB app (Telegram) in **~6.4s** (**~3.9s** with `--fast`);
-  pathological classes run on deadline-bounded monitored threads instead
-  of hanging the run.
-- **Progressive decompilation** — 15 query subcommands (strings,
-  cross-references, hierarchies, manifest, resources, per-method
-  decompiles) answer in milliseconds: query metadata first, decompile
-  on demand, skip the full run entirely.
-- **DEX 035–041, complete** — multi-dex APKs, XAPK/APKS/APKM
-  containers, invoke-custom; lambdas and string concats fold back into
-  real Java (`(a) -> …`, `Cls::name`, `a + b`).
-- **Readable output** — jadx-style local names (`str`, `getName() →
-  name`, Kotlin `Intrinsics` parameter strings) instead of `v12`;
-  IntDef literals render as their constants out of the box
-  (`setVisibility(8)` → `View.GONE`; a built-in android-37 domain
-  table, `--symbols` overrides); Kotlin null-check noise is elided and
-  synthetic `access$NNN` bridges inline at their call sites.
-- **Reproducible output** — no timestamps; two runs diff cleanly.
-- **HTTP REST + MCP, built in** ([xyz-rust](https://github.com/ejfkdev/xyz-rust)):
-  `ddc serve` exposes every query as a REST route (GET with query
-  params or POST with a JSON body) plus `GET
-  /openapi.json` and a streamable MCP endpoint at `/mcp` — point an
-  MCP client at `http://addr/mcp`; `ddc http` is REST-only (no
-  `/mcp`); `ddc mcp stdio|http` exposes the 10 core queries as MCP tools
-  with input and output schemas. Query commands take `--format
-  auto|text|table|markdown|md|json|jsonl` (auto: table on a terminal,
-  the stable text form when piped).
-- **Bilingual CLI** — messages localize automatically
-  (`DDC_LANG=zh|en` forces; English fallback).
-- Built on [`jdc-core`](https://crates.io/crates/jdc-core), the
-  machine-neutral core shared with
+- **Quality first, not just fast** — all seven benchmark APKs (0.91M
+  files) pass `javac`'s parse gate with **zero syntax errors**, and a
+  full-classpath javac battery independently tracks semantic regressions.
+  Every file also goes through [cure](https://github.com/ejfkdev/cure),
+  an exact semantic-preserving simplification: **−15% output lines** with
+  identical gate results. Case-variant class names never overwrite each
+  other.
+- **Fast** — a 226 MB / 20-dex APK (weibo, 98k classes) fully decompiles
+  in **~19s** (**~9.7s** with `--fast`); Telegram (62 MB) in **~6.4s**
+  (**~3.9s**). Pathological classes run on deadline-bounded monitored
+  threads instead of hanging the run.
+- **Progressive queries** — 15 subcommands (strings, cross-references,
+  hierarchies, manifest, resources, method-level decompilation) answer in
+  milliseconds: query metadata first, decompile on demand.
+- **DEX 035–041, complete** — multi-dex APKs, XAPK/APKS/APKM containers,
+  invoke-custom; lambdas and string concats fold back into real Java
+  (`(a) -> …`, `Cls::name`, `a + b`).
+- **Readable output** — jadx-style local names instead of `v12`; IntDef
+  literals render as constants (`setVisibility(8)` → `View.GONE`) with a
+  built-in android-37 table; Kotlin null-check noise is elided and
+  `access$NNN` bridges inline.
+- **Reproducible** — no timestamps; two runs diff cleanly.
+- **HTTP REST + MCP, built in** ([xyz-rust](https://github.com/ejfkdev/xyz-rust)) —
+  `ddc serve` exposes every query over REST, OpenAPI and a streamable
+  `/mcp` endpoint; `ddc mcp` provides 10 MCP tools. Output formats:
+  text, table, markdown, JSON/JSONL.
+- **Bilingual CLI** — `DDC_LANG=zh|en`, automatic locale detection.
+- Built on [`jdc-core`](https://crates.io/crates/jdc-core), shared with
   [jcdc](https://github.com/ejfkdev/jcdc).
 
 ## Install
@@ -127,9 +111,8 @@ instead of compiling):
 cargo binstall ddc-cli
 ```
 
-**Arch Linux** — the AUR package will be `ddc-bin`, but AUR registration is
-currently closed (HTTP 503). Install the release bundle manually in the
-meantime (requires `base-devel`):
+**Arch Linux** — install the release bundle manually (requires
+`base-devel`); it contains the same files as the `ddc-bin` AUR package:
 
 ```bash
 # replace with the release you want
@@ -138,8 +121,6 @@ curl -LO "https://github.com/ejfkdev/ddc/releases/download/v$VERSION/ddc-bin-$VE
 tar xzf "ddc-bin-$VERSION-1-aur.tar.gz"
 cd ddc-bin && makepkg -si
 ```
-
-Once AUR registration reopens: `yay -S ddc-bin` or `paru -S ddc-bin`.
 
 **Binaries**: every [release](https://github.com/ejfkdev/ddc/releases)
 ships raw binaries (no archives) for `linux-amd64`, `linux-arm64`,
@@ -214,7 +195,7 @@ string and method `onCreate`, `hierarchy`/`disasm`/`getclass` on each
 app's launcher class):
 
 <details>
-<summary>Query subcommands — 13 commands × 7 APKs</summary>
+<summary>Query subcommands — 13 representative commands × 7 APKs</summary>
 
 | Command | reqable | Telegram | WhatsApp | weibo | weixin | lark | qq |
 |---|---|---|---|---|---|---|---|
@@ -247,18 +228,17 @@ app's launcher class):
 
 ## Known limitations
 
-Erased types (DEX has no Signature); d8-desugared `-$$Lambda$` classes
-stay separate files; a few R8 monster methods degrade via timeout (and
-a handful of deadline-truncated ones can vary between runs);
-pattern-switch renders as desugared dispatch chains. The javac gate
-above is a SYNTAX gate — semantic diagnostics (missing Android
-classpath, and in rare register-heavy monster methods a type-confused
-local) remain in the output. For scale: a full-classpath javac battery
-over four corpora currently sits at ~7,500 ddc-attributable errors
-across 0.91M files (v0.1.19 measured 11,345 — see
-[benchmarks](docs/benchmarks.md)); jadx on the same battery lands at
-roughly half that, the gap concentrated in type recovery. Details:
-[architecture](docs/architecture.md).
+Generic signatures are not reconstructed: fields and methods print raw
+`List`/`Map`, and class type parameters are dropped. d8-desugared
+`-$$Lambda$` classes stay separate files; a few R8 monster methods hit the
+deadline guard (one WhatsApp 9.3.65 class still does), so a truncated class
+can vary between runs; Java 21 pattern switches still render as desugared
+`switchDispatch` chains and are not fully reconstructed. The javac gate is
+a **syntax** gate: missing Android classpath and rare type-confused locals
+remain semantic diagnostics.
+A full-classpath javac battery puts ddc at roughly 7,500 attributable
+errors across 0.91M files; jadx is about half, the gap concentrated in type
+recovery. Details: [architecture](docs/architecture.md).
 
 ## Testing
 

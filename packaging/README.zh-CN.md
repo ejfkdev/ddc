@@ -15,7 +15,7 @@ Scoop bucket 一样：一份 catalog 列出程序，一个生成器渲染各渠�
 | cargo-binstall | `crates/ddc-cli/Cargo.toml` 里的 `[package.metadata.binstall]` | 已上线并实测 |
 | Homebrew | `ejfkdev/homebrew-tap`（独立仓库，自动更新） | 已上线 |
 | Scoop | `ejfkdev/scoop-bucket`（独立仓库，自动更新） | 已上线 |
-| Arch Linux / AUR | `packaging/aur/ddc-bin/` | AUR 待发布（注册临时关闭）；PKGBUILD 包已上线 |
+| Arch Linux / AUR | `packaging/aur/ddc-bin/` | PKGBUILD 包已上线 |
 | Windows Package Manager | `packaging/winget/` | 已合并进 winget-pkgs（#437825）；本地 zip 已上线 |
 | npm | `packaging/npm/ddc/` | npmjs 已上线；GitHub Packages 已上线；tarball 已上线 |
 | PyPI | — | 明确不做 |
@@ -26,8 +26,7 @@ Scoop bucket 一样：一份 catalog 列出程序，一个生成器渲染各渠�
 渠道已就绪：npm wrapper 已在 npmjs 和 GitHub Packages 上线，并实际安装
 运行过（包括禁用 install scripts 的场景）；WinGet 包已通过 PR #437825
 合并进 `microsoft/winget-pkgs`（2026-10-30）；AUR 的 PKGBUILD 已生成并
-验证，但 AUR 目前临时关闭新账号注册（HTTP 503），暂时无法提交。自包含的
-`ddc-bin-<version>-1-aur.tar.gz` 仍可直接 `makepkg` 安装。npm tarball 和
+验证；自包含的 `ddc-bin-<version>-1-aur.tar.gz` 仍可直接 `makepkg` 安装。npm tarball 和
 WinGet 本地清单 zip 也附在每次 release 上。
 
 **为什么不做 PyPI？** Python wheel 不适合装原生二进制：支持八个 target 就要

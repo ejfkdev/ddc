@@ -16,7 +16,7 @@ the AUR, WinGet and npm renderers are already generic.
 | cargo-binstall | `[package.metadata.binstall]` in `crates/ddc-cli/Cargo.toml` | live and verified |
 | Homebrew | `ejfkdev/homebrew-tap` (separate repo, auto-updated) | live |
 | Scoop | `ejfkdev/scoop-bucket` (separate repo, auto-updated) | live |
-| Arch Linux / AUR | `packaging/aur/ddc-bin/` | AUR pending (registration temporarily closed); PKGBUILD bundle live |
+| Arch Linux / AUR | `packaging/aur/ddc-bin/` | PKGBUILD bundle live |
 | Windows Package Manager | `packaging/winget/` | live in winget-pkgs (#437825); local zip live |
 | npm | `packaging/npm/ddc/` | npmjs live; GitHub Packages live; tarball live |
 | PyPI | — | deliberately not used |
@@ -28,9 +28,8 @@ The registry channels are in place: the npm wrapper is live on npmjs and
 GitHub Packages and was installed/executed end-to-end (including with install
 scripts disabled), the WinGet package is live in `microsoft/winget-pkgs`
 (PR #437825, merged 2026-10-30), and the AUR PKGBUILD is generated and
-validated. AUR submission is currently blocked because AUR has temporarily
-closed new account registration (HTTP 503); the self-contained
-`ddc-bin-<version>-1-aur.tar.gz` bundle remains installable with `makepkg`.
+validated. The self-contained `ddc-bin-<version>-1-aur.tar.gz` bundle
+remains installable with `makepkg`.
 The registry-independent npm tarball and WinGet local-manifest zip are also
 attached to every release.
 

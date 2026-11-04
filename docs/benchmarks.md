@@ -35,17 +35,17 @@ classpath.
 
 **Semantic quality is measured separately — a javac battery with the
 full Android classpath** (android-37 jar + optional libraries) over four
-corpora, counting ddc-attributable diagnostics. That battery is the
-driver of the post-0.1.4 fix rounds and has gone **11,345 → 7,452
-errors (−34%) from v0.1.19 to v0.1.22**, including a multi-handler
-exception-routing bug present since the first release (every catch of a
-multi-handler method ran the first handler's code — invisible to any
-parse gate) and three javac-blind value-loss defects found by reading
-the output against the disassembly. Semantic quality still trails jadx
-on type recovery (erased generics, register-typed locals in R8 monster
-methods) — see "Known limitations" in the README.
+corpora, counting ddc-attributable diagnostics. That battery has driven
+the post-0.1.4 fix rounds and currently reports ~7,500 ddc-attributable
+errors across 0.91M files. It caught a multi-handler exception-routing
+bug present since the first release (every catch of a multi-handler
+method ran the first handler's code — invisible to any parse gate) and
+three javac-blind value-loss defects found by reading the output against
+the disassembly. Semantic quality still trails jadx on type recovery
+(erased generics, register-typed locals in R8 monster methods) — see
+"Known limitations" in the README.
 
-## Every query subcommand, same seven APKs
+## Representative query subcommands, same seven APKs
 
 Measured after a cooldown; cells are wall time / peak RSS. Query targets:
 `strings -f <package> --with-locations`; `findrefs string <package>`;
